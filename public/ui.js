@@ -1,5 +1,9 @@
 const form = document.querySelector("#search-form");
 const button = document.querySelector("#search-button");
+const industrySelect = document.querySelector("#industry");
+const industryDescription = document.querySelector("#industry-description");
+const priorityGrid = document.querySelector("#priority-grid");
+const companyTypeGrid = document.querySelector("#company-type-grid");
 const emptyState = document.querySelector("#empty-state");
 const loadingState = document.querySelector("#loading-state");
 const errorState = document.querySelector("#error-state");
@@ -14,29 +18,14 @@ const persistenceNote = document.querySelector("#persistence-note");
 const exportButton = document.querySelector("#export-csv");
 const tryAgainButton = document.querySelector("#try-again");
 
+let industries = [];
 let lastProspects = [];
+let lastDiscovery = null;
 let loadingTimer;
 
-const loadingMessages = [
-  ["Searching the market…", "Looking for credible dental practice candidates."],
-  ["Checking practice websites…", "Verifying services, location, and first-party evidence."],
-  ["Filtering weak matches…", "Removing chains, directories, duplicates, and uncertain candidates."],
-  ["Building your shortlist…", "Organizing the strongest evidence-backed prospects."]
-];
-
-const serviceLabels = {
-  implants: "Implants",
-  fullMouth: "Full-mouth",
-  cosmetic: "Cosmetic",
-  clearAligners: "Clear aligners",
-  sedation: "Sedation"
-};
-
-const practiceTypeLabels = {
-  independent: "Independent",
-  small_group: "Small group",
-  unknown: "Ownership unclear"
-};
+function currentIndustry() {
+  return industries.find((item) => item.id === industrySelect.value) || null;
+}
 
 function setView(view) {
   emptyState.hidden = view !== "empty";
@@ -45,25 +34,8 @@ function setView(view) {
   resultsState.hidden = view !== "results";
 }
 
-function startLoadingMessages() {
-  let index = 0;
-  const update = () => {
-    const [title, message] = loadingMessages[index % loadingMessages.length];
-    loadingTitle.textContent = title;
-    loadingMessage.textContent = message;
-    index += 1;
-  };
-
-  update();
-  loadingTimer = setInterval(update, 3200);
-}
-
-function stopLoadingMessages() {
-  if (loadingTimer) clearInterval(loadingTimer);
-}
-
 function selectedValues(name) {
-  return [...document.querySelectorAll(`input[name="${name}"]:checked`)]
+  return [...document.querySelectorAll('input[name="' + name + '"]:checked')]
     .map((input) => input.value);
 }
 
@@ -85,10 +57,77 @@ function safeUrl(value) {
   }
 }
 
-function renderServices(services = {}) {
-  return Object.entries(serviceLabels)
-    .map(([key, label]) =>
-      `<span class="tag ${services[key] ? "active" : ""}">${escapeHtml(label)}</span>`
+function createCheck(name, option, checked) {
+  const label = document.createElement("label");
+  label.className = "check";
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.name = name;
+  input.value = option.id;
+  input.checked = checked;
+
+  const span = document.createElement("span");
+  span.textContent = option.label;
+
+  label.append(input, span);
+  return label;
+}
+
+function renderIndustryControls() {
+  const industry = currentIndustry();
+  priorityGrid.innerHTML = "";
+  companyTypeGrid.innerHTML = "";
+
+  if (!industry) {
+    industryDescription.textContent =
+      "Choose an industry to load its prospecting criteria.";
+    return;
+  }
+
+  industryDescription.textContent = industry.description;
+
+  const defaults = new Set(industry.defaultPriorities || []);
+  industry.capabilities.forEach((option) => {
+    priorityGrid.append(
+      createCheck("priority", option, defaults.has(option.id))
+    );
+  });
+
+  industry.companyTypes.forEach((option) => {
+    const checked = ["independent", "small_group"].includes(option.id);
+    companyTypeGrid.append(
+      createCheck("companyType", option, checked)
+    );
+  });
+}
+
+function capabilityLabel(id, industry = currentIndustry()) {
+  return (
+    industry?.capabilities.find((item) => item.id === id)?.label ||
+    id
+  );
+}
+
+function companyTypeLabel(id, industry = currentIndustry()) {
+  return (
+    industry?.companyTypes.find((item) => item.id === id)?.label ||
+    id ||
+    "Unknown"
+  );
+}
+
+function renderCapabilities(capabilities = [], industry) {
+  if (!capabilities.length) {
+    return '<span class="tag">No verified priorities</span>';
+  }
+
+  return capabilities
+    .map(
+      (id) =>
+        '<span class="tag active">' +
+        escapeHtml(capabilityLabel(id, industry)) +
+        "</span>"
     )
     .join("");
 }
@@ -97,100 +136,183 @@ function renderEvidence(evidence = []) {
   return evidence
     .map((item) => {
       const href = safeUrl(item.url);
-      return `
-        <li>
-          ${escapeHtml(item.fact)}
-          ${href !== "#" ? `<br><a href="${href}" target="_blank" rel="noopener noreferrer">View source</a>` : ""}
-        </li>
-      `;
+      return (
+        "<li>" +
+        escapeHtml(item.fact) +
+        (href !== "#"
+          ? '<br><a href="' +
+            href +
+            '" target="_blank" rel="noopener noreferrer">View source</a>'
+          : "") +
+        "</li>"
+      );
     })
     .join("");
 }
 
-function renderProspect(prospect, index) {
+function renderProspect(prospect, index, industry) {
   const website = safeUrl(prospect.website);
   const reasons = (prospect.fitReasons || [])
-    .slice(0, 3)
-    .map((reason) => `<li>${escapeHtml(reason)}</li>`)
+    .slice(0, 4)
+    .map((reason) => "<li>" + escapeHtml(reason) + "</li>")
     .join("");
 
-  return `
-    <article class="prospect-card">
-      <div class="prospect-main">
-        <div class="score" title="Discovery confidence, not a final sales score">
-          <div>
-            <strong>${Number(prospect.discoveryConfidence || 0)}</strong>
-            <small>confidence</small>
-          </div>
-        </div>
+  const subindustry = prospect.subindustry
+    ? " • " + escapeHtml(prospect.subindustry)
+    : "";
 
-        <div class="prospect-copy">
-          <h3>${escapeHtml(prospect.name)}</h3>
-          <p class="prospect-meta">
-            ${escapeHtml(prospect.city)}, ${escapeHtml(prospect.state)}
-            • ${escapeHtml(practiceTypeLabels[prospect.practiceType] || "Practice")}
-            • Independent confidence ${Number(prospect.independenceConfidence || 0)}%
-          </p>
+  return (
+    '<article class="prospect-card">' +
+      '<div class="prospect-main">' +
+        '<div class="score" title="Discovery confidence, not a final sales score">' +
+          "<div>" +
+            "<strong>" + Number(prospect.discoveryConfidence || 0) + "</strong>" +
+            "<small>confidence</small>" +
+          "</div>" +
+        "</div>" +
 
-          <div class="tags">${renderServices(prospect.services)}</div>
+        '<div class="prospect-copy">' +
+          "<h3>" + escapeHtml(prospect.name) + "</h3>" +
+          '<p class="prospect-meta">' +
+            escapeHtml(prospect.city) + ", " + escapeHtml(prospect.state) +
+            subindustry +
+            " • " + escapeHtml(companyTypeLabel(prospect.companyType, industry)) +
+            " • Type confidence " +
+            Number(prospect.companyTypeConfidence || 0) +
+            "%" +
+          "</p>" +
 
-          <ul class="fit-reasons">${reasons}</ul>
-        </div>
+          '<div class="tags">' +
+            renderCapabilities(prospect.capabilities, industry) +
+          "</div>" +
 
-        <div class="card-actions">
-          ${website !== "#" ? `<a class="website-link" href="${website}" target="_blank" rel="noopener noreferrer">Website ↗</a>` : ""}
-          <button class="details-button" type="button" data-details="${index}" aria-expanded="false">Evidence</button>
-        </div>
-      </div>
+          '<ul class="fit-reasons">' + reasons + "</ul>" +
+        "</div>" +
 
-      <div id="details-${index}" class="prospect-details" hidden>
-        <div class="detail-grid">
-          <div class="detail-block">
-            <h4>Business details</h4>
-            <p>
-              ${prospect.phone ? `Phone: ${escapeHtml(prospect.phone)}<br>` : ""}
-              Practice type: ${escapeHtml(practiceTypeLabels[prospect.practiceType] || prospect.practiceType || "Unknown")}<br>
-              Discovery confidence: ${Number(prospect.discoveryConfidence || 0)}%<br>
-              Independence confidence: ${Number(prospect.independenceConfidence || 0)}%
-            </p>
-          </div>
-          <div class="detail-block">
-            <h4>Public evidence</h4>
-            <ol class="evidence-list">${renderEvidence(prospect.evidence)}</ol>
-          </div>
-        </div>
-      </div>
-    </article>
-  `;
+        '<div class="card-actions">' +
+          (website !== "#"
+            ? '<a class="website-link" href="' +
+              website +
+              '" target="_blank" rel="noopener noreferrer">Website ↗</a>'
+            : "") +
+          '<button class="details-button" type="button" data-details="' +
+            index +
+            '" aria-expanded="false">Evidence</button>' +
+        "</div>" +
+      "</div>" +
+
+      '<div id="details-' + index + '" class="prospect-details" hidden>' +
+        '<div class="detail-grid">' +
+          '<div class="detail-block">' +
+            "<h4>Business details</h4>" +
+            "<p>" +
+              (prospect.phone
+                ? "Phone: " + escapeHtml(prospect.phone) + "<br>"
+                : "") +
+              "Company type: " +
+              escapeHtml(companyTypeLabel(prospect.companyType, industry)) +
+              "<br>" +
+              (prospect.subindustry
+                ? "Specialty: " + escapeHtml(prospect.subindustry) + "<br>"
+                : "") +
+              "Discovery confidence: " +
+              Number(prospect.discoveryConfidence || 0) +
+              "%<br>" +
+              "Company-type confidence: " +
+              Number(prospect.companyTypeConfidence || 0) +
+              "%" +
+            "</p>" +
+          "</div>" +
+          '<div class="detail-block">' +
+            "<h4>Public evidence</h4>" +
+            '<ol class="evidence-list">' +
+              renderEvidence(prospect.evidence) +
+            "</ol>" +
+          "</div>" +
+        "</div>" +
+      "</div>" +
+    "</article>"
+  );
+}
+
+function startLoadingMessages(industryLabel) {
+  const messages = [
+    [
+      "Searching " + industryLabel + "…",
+      "Looking for credible businesses that fit the selected market."
+    ],
+    [
+      "Checking first-party websites…",
+      "Verifying specialties, capabilities, location, and public evidence."
+    ],
+    [
+      "Filtering weak matches…",
+      "Removing directories, duplicates, poor-fit companies, and uncertain candidates."
+    ],
+    [
+      "Building your shortlist…",
+      "Organizing the strongest evidence-backed prospects."
+    ]
+  ];
+
+  let index = 0;
+
+  const update = () => {
+    const [title, message] = messages[index % messages.length];
+    loadingTitle.textContent = title;
+    loadingMessage.textContent = message;
+    index += 1;
+  };
+
+  update();
+  loadingTimer = setInterval(update, 3200);
+}
+
+function stopLoadingMessages() {
+  if (loadingTimer) clearInterval(loadingTimer);
 }
 
 function showResults(payload) {
   const discovery = payload.discovery;
-  lastProspects = [...(discovery.prospects || [])]
-    .sort((a, b) => (b.discoveryConfidence || 0) - (a.discoveryConfidence || 0));
+  lastDiscovery = discovery;
+
+  const industry = industries.find((item) => item.id === discovery.industry);
+  lastProspects = [...(discovery.prospects || [])].sort(
+    (a, b) =>
+      (b.discoveryConfidence || 0) - (a.discoveryConfidence || 0)
+  );
+
+  const industryLabel = industry?.label || discovery.industry;
 
   resultsTitle.textContent =
-    lastProspects.length === 1
-      ? `1 prospect in ${discovery.market}`
-      : `${lastProspects.length} prospects in ${discovery.market}`;
+    lastProspects.length +
+    (lastProspects.length === 1 ? " prospect" : " prospects") +
+    " • " +
+    industryLabel +
+    " • " +
+    discovery.market;
 
   resultsSummary.textContent =
     discovery.searchSummary ||
-    `Evidence-backed candidates within approximately ${discovery.radiusMiles} miles.`;
+    "Evidence-backed candidates within approximately " +
+      discovery.radiusMiles +
+      " miles.";
 
   resultsList.innerHTML = lastProspects.length
-    ? lastProspects.map(renderProspect).join("")
-    : `
-      <div class="message-card">
-        <h2>No confident matches found.</h2>
-        <p>Try a larger radius or broaden the service priorities.</p>
-      </div>
-    `;
+    ? lastProspects
+        .map((prospect, index) => renderProspect(prospect, index, industry))
+        .join("")
+    : (
+      '<div class="message-card">' +
+        "<h2>No confident matches found.</h2>" +
+        "<p>Try a larger radius or broaden the capability priorities.</p>" +
+      "</div>"
+    );
 
   if (payload.persistence?.ok === false) {
     persistenceNote.hidden = false;
     persistenceNote.textContent =
-      "The search completed, but these prospects were not saved to the database. The public results are still usable.";
+      "The search completed, but these prospects were not saved to the database. Run the latest Supabase migration if you have not already done so.";
   } else {
     persistenceNote.hidden = true;
   }
@@ -203,23 +325,70 @@ function showError(message) {
   setView("error");
 }
 
+async function loadIndustries() {
+  try {
+    const response = await fetch("/api/industries");
+    const data = await response.json();
+
+    if (!response.ok || !Array.isArray(data.industries)) {
+      throw new Error("Industry configuration could not be loaded.");
+    }
+
+    industries = data.industries;
+
+    industrySelect.innerHTML = industries
+      .map(
+        (industry) =>
+          '<option value="' +
+          escapeHtml(industry.id) +
+          '">' +
+          escapeHtml(industry.label) +
+          "</option>"
+      )
+      .join("");
+
+    industrySelect.value =
+      industries.find((item) => item.id === "dental")?.id ||
+      industries[0]?.id ||
+      "";
+
+    renderIndustryControls();
+  } catch (error) {
+    industrySelect.innerHTML =
+      '<option value="">Unable to load industries</option>';
+    showError(error.message);
+  }
+}
+
+industrySelect.addEventListener("change", () => {
+  renderIndustryControls();
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  const industry = currentIndustry();
+
+  if (!industry) {
+    showError("Choose an industry before searching.");
+    return;
+  }
+
   const payload = {
+    industry: industry.id,
     market: document.querySelector("#market").value.trim(),
     radiusMiles: Number(document.querySelector("#radius").value),
     maxResults: Number(document.querySelector("#max-results").value),
     priorities: selectedValues("priority"),
-    practiceTypes: selectedValues("practiceType")
+    companyTypes: selectedValues("companyType")
   };
 
   button.disabled = true;
   setView("loading");
-  startLoadingMessages();
+  startLoadingMessages(industry.label);
 
   try {
-    const response = await fetch("/api/public/dental-discovery", {
+    const response = await fetch("/api/public/discovery", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -228,7 +397,12 @@ form.addEventListener("submit", async (event) => {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(data.error || "The search could not be completed.");
+      const stage = data.diagnostic?.stage
+        ? " (" + data.diagnostic.stage + ")"
+        : "";
+      throw new Error(
+        (data.error || "The search could not be completed.") + stage
+      );
     }
 
     showResults(data);
@@ -245,7 +419,7 @@ resultsList.addEventListener("click", (event) => {
   if (!trigger) return;
 
   const index = trigger.dataset.details;
-  const details = document.querySelector(`#details-${index}`);
+  const details = document.querySelector("#details-" + index);
   const expanded = trigger.getAttribute("aria-expanded") === "true";
 
   trigger.setAttribute("aria-expanded", String(!expanded));
@@ -259,44 +433,51 @@ tryAgainButton.addEventListener("click", () => {
 });
 
 exportButton.addEventListener("click", () => {
-  if (!lastProspects.length) return;
+  if (!lastProspects.length || !lastDiscovery) return;
+
+  const industry =
+    industries.find((item) => item.id === lastDiscovery.industry) || null;
 
   const headers = [
+    "Industry",
     "Name",
     "Website",
     "City",
     "State",
     "Phone",
-    "Practice Type",
+    "Subindustry",
+    "Company Type",
     "Discovery Confidence",
-    "Independence Confidence",
-    "Services",
+    "Company Type Confidence",
+    "Capabilities",
     "Fit Reasons"
   ];
 
-  const rows = lastProspects.map((prospect) => {
-    const services = Object.entries(prospect.services || {})
-      .filter(([, active]) => active)
-      .map(([key]) => serviceLabels[key] || key)
-      .join("; ");
-
-    return [
-      prospect.name,
-      prospect.website,
-      prospect.city,
-      prospect.state,
-      prospect.phone || "",
-      practiceTypeLabels[prospect.practiceType] || prospect.practiceType,
-      prospect.discoveryConfidence,
-      prospect.independenceConfidence,
-      services,
-      (prospect.fitReasons || []).join("; ")
-    ];
-  });
+  const rows = lastProspects.map((prospect) => [
+    industry?.label || lastDiscovery.industry,
+    prospect.name,
+    prospect.website,
+    prospect.city,
+    prospect.state,
+    prospect.phone || "",
+    prospect.subindustry || "",
+    companyTypeLabel(prospect.companyType, industry),
+    prospect.discoveryConfidence,
+    prospect.companyTypeConfidence,
+    (prospect.capabilities || [])
+      .map((id) => capabilityLabel(id, industry))
+      .join("; "),
+    (prospect.fitReasons || []).join("; ")
+  ]);
 
   const csv = [headers, ...rows]
     .map((row) =>
-      row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(",")
+      row
+        .map(
+          (value) =>
+            '"' + String(value ?? "").replaceAll('"', '""') + '"'
+        )
+        .join(",")
     )
     .join("\n");
 
@@ -304,9 +485,12 @@ exportButton.addEventListener("click", () => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = "dental-prospects.csv";
+  anchor.download =
+    (lastDiscovery.industry || "prospects") + "-prospects.csv";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
 });
+
+loadIndustries();
