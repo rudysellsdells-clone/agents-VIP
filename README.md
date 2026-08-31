@@ -113,6 +113,8 @@ supabase/migrations/004_add_prospect_enrichment.sql
 supabase/migrations/005_add_opportunity_scoring.sql
 supabase/migrations/006_reconcile_prospect_persistence.sql
 supabase/migrations/007_add_contact_resolution.sql
+supabase/migrations/008_add_outreach_drafts.sql
+supabase/migrations/009_add_qualification_jobs.sql
 ```
 
 Migration 004 is defensive and also creates the email column/index if migration
@@ -415,3 +417,83 @@ records per job for the current phase.
 The application itself enforces an upper ceiling of 100 even if a larger
 environment value is supplied. This limit can be revisited after real usage,
 cost, retry, and quality telemetry has been collected.
+
+
+## Automated Qualification Pipeline
+
+Version 0.9 introduces a durable Supabase-backed qualification job queue.
+
+A job automatically runs:
+
+1. Agent 2 enrichment.
+2. Agent 3 deterministic scoring.
+3. Agent 4 contact resolution when the score reaches the configured threshold.
+4. Optionally Agent 5 outreach drafting for Priority prospects.
+
+The current hard ceiling is 100 prospects per authenticated job.
+
+Public browser jobs are intentionally limited to the prospects returned by the
+public discovery search, currently no more than 10 records per job. Public
+automated qualification also has its own hourly rate limit.
+
+Authenticated endpoint:
+
+```
+POST /api/agents/qualification-jobs
+Authorization: Bearer <AGENT_API_TOKEN>
+```
+
+Public endpoint used by the browser:
+
+```
+POST /api/public/qualification-jobs
+```
+
+Job status:
+
+```
+GET /api/public/qualification-jobs/:jobId
+GET /api/agents/qualification-jobs/:jobId
+```
+
+The queue is stored in:
+
+- `qualification_jobs`
+- `qualification_job_items`
+
+Each item persists its current stage and outputs so the worker can resume after
+an application restart rather than restarting the entire batch.
+
+Typical stages include:
+
+- `ENRICHMENT_QUEUED`
+- `ENRICHING`
+- `ENRICHED`
+- `SCORING`
+- `SCORED`
+- `STOPPED_BELOW_THRESHOLD`
+- `CONTACT_RESOLVING`
+- `CONTACT_RESOLVED`
+- `OUTREACH_DRAFTING`
+- `OUTREACH_DRAFTED`
+- `FAILED`
+
+Worker controls:
+
+- `QUALIFICATION_JOB_MAX_RECORDS=100`
+- `QUALIFICATION_CONCURRENCY=2`
+- `QUALIFICATION_MAX_ATTEMPTS=2`
+- `PUBLIC_QUALIFICATION_JOBS_PER_HOUR=3`
+
+Concurrency is capped at 5 and retry attempts are capped at 3 in application
+code. A failure on one prospect does not fail the rest of the batch.
+
+Agent 4 remains gated by `CONTACT_RESOLUTION_MIN_SCORE`, currently 65 by
+default. Agent 5 is optional in automated jobs and defaults to Priority
+prospects at score 80+.
+
+Run migration:
+
+```
+supabase/migrations/009_add_qualification_jobs.sql
+```
