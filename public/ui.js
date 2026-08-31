@@ -639,7 +639,11 @@ resultsList.addEventListener("click", async (event) => {
         );
       }
 
-      container.innerHTML = renderEnrichment(data.enrichment);
+      container.innerHTML =
+        renderEnrichment(data.enrichment) +
+        (data.persistence?.ok === false
+          ? '<div class="persistence-note">Enrichment completed, but it was not saved to Supabase. Run the latest enrichment migration and retry.</div>'
+          : "");
       enrichTrigger.textContent = "Enriched";
       enrichTrigger.classList.add("enriched");
       enrichTrigger.disabled = false;
