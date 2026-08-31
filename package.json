@@ -1,7 +1,7 @@
 {
   "name": "prospect-agent-server",
-  "version": "0.3.0",
-  "description": "AI prospecting agent server for Marketing VIP",
+  "version": "0.4.0",
+  "description": "Multi-industry AI prospect intelligence server for Marketing VIP",
   "type": "module",
   "main": "app.js",
   "scripts": {
