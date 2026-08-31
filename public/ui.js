@@ -1144,6 +1144,13 @@ form.addEventListener("submit", async (event) => {
     companyTypes: selectedValues("companyType")
   };
 
+  stopQualificationPolling();
+  currentQualificationJobId = null;
+  if (qualificationJobPanel) {
+    qualificationJobPanel.hidden = true;
+    qualificationJobPanel.innerHTML = "";
+  }
+
   button.disabled = true;
   setView("loading");
   startLoadingMessages(industry.label);
