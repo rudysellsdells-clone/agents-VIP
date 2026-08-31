@@ -280,6 +280,150 @@ function renderSignalItems(items = [], kind = "growth") {
 }
 
 
+
+function renderResolvedDecisionMaker(person, label) {
+  if (!person) {
+    return '<div class="contact-person empty"><strong>' +
+      escapeHtml(label) +
+      '</strong><p>No sufficiently verified person was found.</p></div>';
+  }
+
+  const email = safeEmail(person.publicBusinessEmail);
+  const profile = person.professionalUrl
+    ? safeUrl(person.professionalUrl)
+    : "#";
+
+  return (
+    '<article class="contact-person">' +
+      '<p class="contact-label">' + escapeHtml(label) + '</p>' +
+      '<h5>' + escapeHtml(person.name) + '</h5>' +
+      '<p class="contact-title">' + escapeHtml(person.title) + '</p>' +
+      '<p class="contact-why">' + escapeHtml(person.whyThisPerson) + '</p>' +
+      '<div class="contact-actions">' +
+        (email
+          ? '<a href="mailto:' + escapeHtml(email) + '">Email</a>'
+          : "") +
+        (person.publicBusinessPhone
+          ? '<a href="tel:' +
+            escapeHtml(person.publicBusinessPhone) +
+            '">' +
+            escapeHtml(person.publicBusinessPhone) +
+            '</a>'
+          : "") +
+        (profile !== "#"
+          ? '<a href="' +
+            profile +
+            '" target="_blank" rel="noopener noreferrer">Profile ↗</a>'
+          : "") +
+      '</div>' +
+      '<small>' + Number(person.confidence || 0) + '% contact confidence</small>' +
+    '</article>'
+  );
+}
+
+function renderResolvedContactPaths(paths = []) {
+  if (!paths.length) {
+    return "<p>No additional verified public business contact paths found.</p>";
+  }
+
+  return (
+    '<ul class="resolved-paths">' +
+    paths.map((path) => {
+      const email = path.type === "email" ? safeEmail(path.value) : "";
+      const href = path.url ? safeUrl(path.url) : "#";
+      let action = "";
+
+      if (email) {
+        action = '<a href="mailto:' + escapeHtml(email) + '">' +
+          escapeHtml(email) + '</a>';
+      } else if (path.type === "phone" && path.value) {
+        action = '<a href="tel:' + escapeHtml(path.value) + '">' +
+          escapeHtml(path.value) + '</a>';
+      } else if (href !== "#") {
+        action = '<a href="' + href +
+          '" target="_blank" rel="noopener noreferrer">Open ↗</a>';
+      } else if (path.value) {
+        action = '<span>' + escapeHtml(path.value) + '</span>';
+      }
+
+      return (
+        '<li><div><strong>' + escapeHtml(path.label) + '</strong>' +
+        '<small>' + Number(path.confidence || 0) + '% confidence</small></div>' +
+        action + '</li>'
+      );
+    }).join("") +
+    '</ul>'
+  );
+}
+
+function renderContactResolution(resolution) {
+  const secondary = (resolution.secondaryDecisionMakers || [])
+    .map((person, i) =>
+      renderResolvedDecisionMaker(person, "Secondary " + (i + 1))
+    )
+    .join("");
+
+  const basis = (resolution.outreachAngle?.evidenceBasis || [])
+    .map((item) => "<li>" + escapeHtml(item) + "</li>")
+    .join("");
+
+  const avoid = (resolution.outreachAngle?.avoidClaims || [])
+    .map((item) => "<li>" + escapeHtml(item) + "</li>")
+    .join("");
+
+  return (
+    '<div class="contact-resolution-panel">' +
+      '<div class="contact-resolution-head">' +
+        '<div>' +
+          '<p class="eyebrow">Agent 4 deep contact resolution</p>' +
+          '<h4>' + escapeHtml(resolution.resolutionSummary) + '</h4>' +
+        '</div>' +
+        '<div class="contact-resolution-confidence">' +
+          '<strong>' + Number(resolution.resolutionConfidence || 0) + '</strong>' +
+          '<small>resolution confidence</small>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="contact-resolution-grid">' +
+        '<section>' +
+          '<h5>Best decision-maker</h5>' +
+          renderResolvedDecisionMaker(
+            resolution.primaryDecisionMaker,
+            "Primary contact"
+          ) +
+          secondary +
+        '</section>' +
+
+        '<section>' +
+          '<h5>Verified contact routes</h5>' +
+          renderResolvedContactPaths(resolution.contactPaths) +
+        '</section>' +
+
+        '<section class="outreach-angle-card">' +
+          '<h5>Recommended outreach angle</h5>' +
+          '<p class="angle-text">' +
+            escapeHtml(resolution.outreachAngle?.angle || "") +
+          '</p>' +
+          '<p><strong>Channel:</strong> ' +
+            escapeHtml(
+              String(resolution.outreachAngle?.recommendedChannel || "")
+                .replaceAll("_", " ")
+            ) +
+          '</p>' +
+          '<p>' +
+            escapeHtml(resolution.outreachAngle?.reasonForChannel || "") +
+          '</p>' +
+          '<h6>Evidence basis</h6>' +
+          '<ul>' + basis + '</ul>' +
+          (avoid
+            ? '<h6>Avoid claiming</h6><ul>' + avoid + '</ul>'
+            : "") +
+        '</section>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 const scoreCategoryLabels = {
   icpFit: "ICP Fit",
   marketingOpportunity: "Marketing Opportunity",
@@ -290,7 +434,7 @@ const scoreCategoryLabels = {
   decisionMakerAccess: "Decision-Maker Access"
 };
 
-function renderScoring(scoring) {
+function renderScoring(scoring, index, threshold = 65) {
   const breakdown = scoring.breakdown || {};
 
   const categories = Object.entries(breakdown)
@@ -334,6 +478,18 @@ function renderScoring(scoring) {
         "</div>" +
       "</div>" +
       '<div class="score-breakdown">' + categories + "</div>" +
+      '<div class="score-actions">' +
+        (Number(scoring.marketingOpportunityScore || 0) >= threshold
+          ? '<button class="details-button contact-resolve-button" type="button" data-contact-resolve="' +
+            index +
+            '">Resolve Decision Maker</button>'
+          : '<p class="threshold-note">Agent 4 unlocks at ' +
+            threshold +
+            '+. This prospect scored ' +
+            Number(scoring.marketingOpportunityScore || 0) +
+            '.</p>') +
+      '</div>' +
+      '<div id="contact-resolution-' + index + '" class="contact-resolution-output" hidden></div>' +
     "</div>"
   );
 }
@@ -666,6 +822,94 @@ form.addEventListener("submit", async (event) => {
 });
 
 resultsList.addEventListener("click", async (event) => {
+  const contactTrigger = event.target.closest("[data-contact-resolve]");
+
+  if (contactTrigger) {
+    const index = Number(contactTrigger.dataset.contactResolve);
+    const prospect = lastProspects[index];
+    const container = document.querySelector("#contact-resolution-" + index);
+
+    if (
+      !prospect?.enrichment ||
+      !prospect?.scoring ||
+      !lastDiscovery ||
+      !container
+    ) {
+      return;
+    }
+
+    contactTrigger.disabled = true;
+    contactTrigger.textContent = "Resolving…";
+    container.hidden = false;
+    container.innerHTML =
+      '<div class="contact-resolution-loading"><div class="loader"></div><p>Agent 4 is verifying the best decision-maker and business contact routes…</p></div>';
+
+    try {
+      const response = await fetch("/api/public/contact-resolution", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industry: lastDiscovery.industry,
+          prospect: {
+            ...prospect,
+            market: lastDiscovery.market,
+            radiusMiles: lastDiscovery.radiusMiles
+          },
+          enrichment: prospect.enrichment,
+          scoring: prospect.scoring
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const stage = data.diagnostic?.stage
+          ? " (" + data.diagnostic.stage + ")"
+          : "";
+
+        throw new Error(
+          (data.error || "Contact resolution could not be completed.") + stage
+        );
+      }
+
+      prospect.contactResolution = data.resolution;
+      container.innerHTML =
+        renderContactResolution(data.resolution) +
+        (data.persistence?.ok === false
+          ? '<div class="persistence-note">Contact resolution completed, but it was not saved to Supabase.' +
+            (data.persistence?.diagnostic?.category
+              ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
+              : "") +
+            " Run migration 007 and retry.</div>"
+          : "");
+
+      contactTrigger.textContent = "Contact Resolved";
+      contactTrigger.classList.add("resolved");
+      contactTrigger.disabled = false;
+
+      const resolvedEmail =
+        safeEmail(data.resolution.primaryDecisionMaker?.publicBusinessEmail) ||
+        safeEmail(
+          (data.resolution.contactPaths || []).find(
+            (path) => path.type === "email" && safeEmail(path.value)
+          )?.value
+        );
+
+      if (resolvedEmail && !prospect.email) {
+        prospect.email = resolvedEmail;
+      }
+    } catch (error) {
+      container.innerHTML =
+        '<div class="persistence-note">' +
+        escapeHtml(error.message) +
+        "</div>";
+      contactTrigger.textContent = "Retry Contact Resolution";
+      contactTrigger.disabled = false;
+    }
+
+    return;
+  }
+
   const scoreTrigger = event.target.closest("[data-score]");
 
   if (scoreTrigger) {
@@ -707,8 +951,14 @@ resultsList.addEventListener("click", async (event) => {
       }
 
       prospect.scoring = data.scoring;
+      prospect.contactResolutionMinimumScore =
+        Number(data.contactResolutionMinimumScore || 65);
       container.innerHTML =
-        renderScoring(data.scoring) +
+        renderScoring(
+          data.scoring,
+          index,
+          prospect.contactResolutionMinimumScore
+        ) +
         (data.persistence?.ok === false
           ? '<div class="persistence-note">Score calculated, but it was not saved to Supabase.' +
             (data.persistence?.diagnostic?.category
