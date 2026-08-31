@@ -9,6 +9,11 @@ import { scoreProspect } from "./agents/prospect-scoring.js";
 import { resolveProspectContact } from "./agents/contact-resolution.js";
 import { composeOutreach } from "./agents/outreach-composer.js";
 import {
+  startQualificationJob,
+  resumeQualificationJobs,
+  getQualificationWorkerState
+} from "./lib/qualification-pipeline.js";
+import {
   COMPANY_TYPE_IDS,
   getIndustryConfig,
   getPublicIndustryConfigs
@@ -19,7 +24,9 @@ import {
   upsertProspectEnrichment,
   saveProspectScore,
   saveContactResolution,
-  saveOutreachPackage
+  saveOutreachPackage,
+  createQualificationJob,
+  getQualificationJob
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
@@ -275,6 +282,169 @@ function validateDiscoveryRequest(
       ? companyTypes
       : ["independent", "small_group"]
   };
+}
+
+
+function validateQualificationJobRequest(body, { publicRequest = false } = {}) {
+  const industry =
+    typeof body.industry === "string" ? body.industry.trim() : "";
+  const config = getIndustryConfig(industry);
+
+  if (!config) {
+    throw validationError("Choose a supported industry.");
+  }
+
+  if (!Array.isArray(body.prospects) || body.prospects.length === 0) {
+    throw validationError("At least one prospect is required.");
+  }
+
+  const maxRecords = publicRequest ? 10 : QUALIFICATION_JOB_MAX_RECORDS;
+
+  if (body.prospects.length > maxRecords) {
+    throw validationError(
+      "This qualification job can contain at most " +
+        maxRecords +
+        " prospects."
+    );
+  }
+
+  const prospects = body.prospects.map((prospect) =>
+    validateEnrichmentRequest({
+      industry,
+      prospect
+    }).prospect
+  );
+
+  const seen = new Set();
+  const deduped = [];
+
+  for (const prospect of prospects) {
+    let key;
+
+    try {
+      key = new URL(prospect.website).hostname
+        .toLowerCase()
+        .replace(/^www\./, "");
+    } catch {
+      key = prospect.website.toLowerCase();
+    }
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(prospect);
+  }
+
+  if (deduped.length === 0) {
+    throw validationError("No unique prospects were supplied.");
+  }
+
+  const autoDraftPriority = body.autoDraftPriority === true;
+  const requestedDraftThreshold = Number(body.draftScoreThreshold ?? 80);
+  const draftScoreThreshold = Number.isFinite(requestedDraftThreshold)
+    ? Math.max(
+        CONTACT_RESOLUTION_MIN_SCORE,
+        Math.min(100, requestedDraftThreshold)
+      )
+    : 80;
+
+  return {
+    industry,
+    prospects: deduped,
+    contactScoreThreshold: CONTACT_RESOLUTION_MIN_SCORE,
+    autoDraftPriority,
+    draftScoreThreshold
+  };
+}
+
+async function handleCreateQualificationJob(req, res, requireAuth) {
+  if (requireAuth) {
+    const auth = isAuthorized(req);
+
+    if (!auth.ok) {
+      const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+      sendJson(res, statusCode, {
+        status: "error",
+        error: auth.reason
+      });
+      return;
+    }
+  }
+
+  try {
+    const body = await readJsonBody(req, 262144);
+    const payload = validateQualificationJobRequest(body, {
+      publicRequest: !requireAuth
+    });
+
+    const job = await createQualificationJob(payload);
+    startQualificationJob(job.id);
+
+    sendJson(res, 202, {
+      status: "queued",
+      job: {
+        id: job.id,
+        status: job.status,
+        industry: job.industry,
+        totalItems: job.total_items,
+        contactScoreThreshold: job.contact_score_threshold,
+        autoDraftPriority: job.auto_draft_priority,
+        draftScoreThreshold: job.draft_score_threshold
+      }
+    });
+  } catch (error) {
+    console.error("Qualification job creation failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        error: error.message
+      });
+      return;
+    }
+
+    sendJson(res, 500, {
+      status: "error",
+      error: "The qualification job could not be created."
+    });
+  }
+}
+
+async function handleQualificationJobStatus(req, res, jobId, requireAuth) {
+  if (requireAuth) {
+    const auth = isAuthorized(req);
+
+    if (!auth.ok) {
+      const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+      sendJson(res, statusCode, {
+        status: "error",
+        error: auth.reason
+      });
+      return;
+    }
+  }
+
+  try {
+    const job = await getQualificationJob(jobId);
+
+    if (!job) {
+      sendJson(res, 404, {
+        status: "error",
+        error: "Qualification job not found."
+      });
+      return;
+    }
+
+    sendJson(res, 200, {
+      status: "ok",
+      job
+    });
+  } catch (error) {
+    console.error("Qualification job read failed:", error);
+    sendJson(res, 500, {
+      status: "error",
+      error: "The qualification job could not be loaded."
+    });
+  }
 }
 
 function classifyAgentError(error) {
@@ -1664,11 +1834,47 @@ const server = http.createServer(async (req, res) => {
         }
       },
       qualificationAutomation: {
-        enabled: false,
-        plannedStages: ["enrichment", "scoring", "contact_resolution"],
-        maxRecordsPerJob: QUALIFICATION_JOB_MAX_RECORDS
+        enabled: true,
+        stages: ["enrichment", "scoring", "contact_resolution"],
+        optionalPriorityDrafting: true,
+        publicMaxRecordsPerJob: 10,
+        privateMaxRecordsPerJob: QUALIFICATION_JOB_MAX_RECORDS,
+        worker: getQualificationWorkerState()
       }
     });
+    return;
+  }
+
+  const publicJobMatch = url.pathname.match(
+    /^\/api\/public\/qualification-jobs\/([0-9a-f-]+)$/i
+  );
+  const privateJobMatch = url.pathname.match(
+    /^\/api\/agents\/qualification-jobs\/([0-9a-f-]+)$/i
+  );
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/public/qualification-jobs"
+  ) {
+    await handleCreateQualificationJob(req, res, false);
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/agents/qualification-jobs"
+  ) {
+    await handleCreateQualificationJob(req, res, true);
+    return;
+  }
+
+  if (req.method === "GET" && publicJobMatch) {
+    await handleQualificationJobStatus(req, res, publicJobMatch[1], false);
+    return;
+  }
+
+  if (req.method === "GET" && privateJobMatch) {
+    await handleQualificationJobStatus(req, res, privateJobMatch[1], true);
     return;
   }
 
@@ -1759,4 +1965,14 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, () => {
   console.log("VIP Prospect Intelligence running on port " + port);
+
+  resumeQualificationJobs()
+    .then((count) => {
+      if (count > 0) {
+        console.log("Resumed " + count + " qualification job(s).");
+      }
+    })
+    .catch((error) => {
+      console.error("Qualification job resume failed:", error);
+    });
 });
