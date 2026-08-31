@@ -279,7 +279,66 @@ function renderSignalItems(items = [], kind = "growth") {
   );
 }
 
-function renderEnrichment(enrichment) {
+
+const scoreCategoryLabels = {
+  icpFit: "ICP Fit",
+  marketingOpportunity: "Marketing Opportunity",
+  highValueServices: "High-Value Services",
+  growthSignals: "Growth Signals",
+  competitiveOpportunity: "Competitive Opportunity",
+  digitalWeakness: "Digital Weakness",
+  decisionMakerAccess: "Decision-Maker Access"
+};
+
+function renderScoring(scoring) {
+  const breakdown = scoring.breakdown || {};
+
+  const categories = Object.entries(breakdown)
+    .map(([key, category]) => {
+      const score = Number(category.score || 0);
+      const max = Number(category.max || 0);
+      const percent = max > 0 ? Math.round((score / max) * 100) : 0;
+      const reasons = (category.reasons || [])
+        .map((reason) => "<li>" + escapeHtml(reason) + "</li>")
+        .join("");
+
+      return (
+        '<article class="score-category">' +
+          '<div class="score-category-head">' +
+            "<strong>" +
+              escapeHtml(scoreCategoryLabels[key] || key) +
+            "</strong>" +
+            "<span>" + score + " / " + max + "</span>" +
+          "</div>" +
+          '<div class="score-bar"><span style="width:' +
+            Math.max(0, Math.min(100, percent)) +
+            '%"></span></div>' +
+          '<ul class="score-reasons">' + reasons + "</ul>" +
+        "</article>"
+      );
+    })
+    .join("");
+
+  return (
+    '<div class="scoring-panel">' +
+      '<div class="scoring-hero">' +
+        '<div class="opportunity-score">' +
+          "<strong>" + Number(scoring.marketingOpportunityScore || 0) + "</strong>" +
+          "<small>Marketing Opportunity Score</small>" +
+        "</div>" +
+        '<div class="score-summary">' +
+          '<p class="eyebrow">Agent 3 deterministic score</p>' +
+          "<h4>" + escapeHtml(scoring.tier) + "</h4>" +
+          "<p>" + escapeHtml(scoring.nextAction) + "</p>" +
+          "<small>Formula: " + escapeHtml(scoring.scoreVersion) + "</small>" +
+        "</div>" +
+      "</div>" +
+      '<div class="score-breakdown">' + categories + "</div>" +
+    "</div>"
+  );
+}
+
+function renderEnrichment(enrichment, index) {
   return (
     '<div class="enrichment-panel">' +
       '<div class="enrichment-heading">' +
@@ -296,6 +355,12 @@ function renderEnrichment(enrichment) {
       '<p class="enrichment-summary">' +
         escapeHtml(enrichment.businessSummary) +
       "</p>" +
+      '<div class="enrichment-actions">' +
+        '<button class="details-button score-button" type="button" data-score="' +
+          index +
+          '">Calculate Opportunity Score</button>' +
+      "</div>" +
+      '<div id="scoring-' + index + '" class="prospect-scoring" hidden></div>' +
 
       '<div class="enrichment-grid">' +
         '<section>' +
@@ -598,6 +663,68 @@ form.addEventListener("submit", async (event) => {
 });
 
 resultsList.addEventListener("click", async (event) => {
+  const scoreTrigger = event.target.closest("[data-score]");
+
+  if (scoreTrigger) {
+    const index = Number(scoreTrigger.dataset.score);
+    const prospect = lastProspects[index];
+    const container = document.querySelector("#scoring-" + index);
+
+    if (!prospect?.enrichment || !lastDiscovery || !container) {
+      return;
+    }
+
+    scoreTrigger.disabled = true;
+    scoreTrigger.textContent = "Scoring…";
+    container.hidden = false;
+    container.innerHTML =
+      '<div class="score-loading"><p>Applying deterministic scoring rules…</p></div>';
+
+    try {
+      const response = await fetch("/api/public/scoring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industry: lastDiscovery.industry,
+          prospect: {
+            ...prospect,
+            market: lastDiscovery.market,
+            radiusMiles: lastDiscovery.radiusMiles
+          },
+          enrichment: prospect.enrichment
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Opportunity scoring could not be completed."
+        );
+      }
+
+      prospect.scoring = data.scoring;
+      container.innerHTML =
+        renderScoring(data.scoring) +
+        (data.persistence?.ok === false
+          ? '<div class="persistence-note">Score calculated, but it was not saved to Supabase. Run migration 005 and retry.</div>'
+          : "");
+
+      scoreTrigger.textContent = "Recalculate Score";
+      scoreTrigger.classList.add("scored");
+      scoreTrigger.disabled = false;
+    } catch (error) {
+      container.innerHTML =
+        '<div class="persistence-note">' +
+        escapeHtml(error.message) +
+        "</div>";
+      scoreTrigger.textContent = "Retry Score";
+      scoreTrigger.disabled = false;
+    }
+
+    return;
+  }
+
   const enrichTrigger = event.target.closest("[data-enrich]");
 
   if (enrichTrigger) {
@@ -639,8 +766,10 @@ resultsList.addEventListener("click", async (event) => {
         );
       }
 
+      prospect.enrichment = data.enrichment;
+
       container.innerHTML =
-        renderEnrichment(data.enrichment) +
+        renderEnrichment(data.enrichment, index) +
         (data.persistence?.ok === false
           ? '<div class="persistence-note">Enrichment completed, but it was not saved to Supabase. Run the latest enrichment migration and retry.</div>'
           : "");
