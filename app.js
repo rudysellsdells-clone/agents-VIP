@@ -421,7 +421,10 @@ async function handleCreateQualificationJob(req, res, requireAuth) {
   }
 
   try {
-    const body = await readJsonBody(req, 262144);
+    const body = await readJsonBody(
+      req,
+      requireAuth ? 2097152 : 262144
+    );
     const payload = validateQualificationJobRequest(body, {
       publicRequest: !requireAuth
     });
