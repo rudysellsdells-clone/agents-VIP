@@ -281,6 +281,145 @@ function renderSignalItems(items = [], kind = "growth") {
 
 
 
+
+function renderDraftCard(title, text, index, key) {
+  return (
+    '<article class="outreach-draft-card">' +
+      '<div class="outreach-draft-head">' +
+        '<h6>' + escapeHtml(title) + '</h6>' +
+        '<button class="copy-draft-button" type="button" data-copy-outreach="' +
+          escapeHtml(key) +
+          '" data-copy-index="' +
+          index +
+          '">Copy</button>' +
+      '</div>' +
+      '<pre>' + escapeHtml(text || "") + '</pre>' +
+    '</article>'
+  );
+}
+
+function renderEmailDraft(title, draft, index, key) {
+  const text =
+    "Subject: " +
+    String(draft?.subject || "") +
+    "\n\n" +
+    String(draft?.body || "");
+
+  return renderDraftCard(title, text, index, key);
+}
+
+function renderOutreachPackage(outreach, index) {
+  const evidence = (outreach.evidenceUsed || [])
+    .map(
+      (item) =>
+        '<li><strong>' +
+        escapeHtml(item.claim) +
+        '</strong><br>' +
+        escapeHtml(item.sourceContext) +
+        '</li>'
+    )
+    .join("");
+
+  const avoid = (outreach.claimsToAvoid || [])
+    .map((item) => "<li>" + escapeHtml(item) + "</li>")
+    .join("");
+
+  return (
+    '<div class="outreach-panel">' +
+      '<div class="outreach-head">' +
+        '<div>' +
+          '<p class="eyebrow">Agent 5 personalized outreach</p>' +
+          '<h4>' + escapeHtml(outreach.personalizationSummary) + '</h4>' +
+          '<p>Preferred channel: <strong>' +
+            escapeHtml(
+              String(outreach.preferredChannel || "").replaceAll("_", " ")
+            ) +
+          '</strong></p>' +
+        '</div>' +
+        '<div class="outreach-confidence">' +
+          '<strong>' + Number(outreach.generationConfidence || 0) + '</strong>' +
+          '<small>draft confidence</small>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="outreach-notice">' +
+        '<strong>Draft only.</strong> Nothing is sent from this screen.' +
+      '</div>' +
+
+      '<div class="outreach-drafts">' +
+        renderEmailDraft(
+          "Primary email",
+          outreach.primaryEmail,
+          index,
+          "primaryEmail"
+        ) +
+        renderEmailDraft(
+          "Follow-up email",
+          outreach.followUpEmail,
+          index,
+          "followUpEmail"
+        ) +
+        renderDraftCard(
+          "LinkedIn message",
+          outreach.linkedinMessage,
+          index,
+          "linkedinMessage"
+        ) +
+        renderDraftCard(
+          "Call opener",
+          outreach.callOpener,
+          index,
+          "callOpener"
+        ) +
+        renderDraftCard(
+          "Contact-form message",
+          outreach.contactFormMessage,
+          index,
+          "contactFormMessage"
+        ) +
+      '</div>' +
+
+      '<div class="outreach-audit">' +
+        '<section>' +
+          '<h6>Evidence used</h6>' +
+          '<ul>' + evidence + '</ul>' +
+        '</section>' +
+        (avoid
+          ? '<section><h6>Claims to avoid</h6><ul>' + avoid + '</ul></section>'
+          : "") +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function outreachTextForKey(outreach, key) {
+  if (!outreach) return "";
+
+  if (key === "primaryEmail") {
+    return (
+      "Subject: " +
+      String(outreach.primaryEmail?.subject || "") +
+      "\n\n" +
+      String(outreach.primaryEmail?.body || "")
+    );
+  }
+
+  if (key === "followUpEmail") {
+    return (
+      "Subject: " +
+      String(outreach.followUpEmail?.subject || "") +
+      "\n\n" +
+      String(outreach.followUpEmail?.body || "")
+    );
+  }
+
+  if (key === "linkedinMessage") return outreach.linkedinMessage || "";
+  if (key === "callOpener") return outreach.callOpener || "";
+  if (key === "contactFormMessage") return outreach.contactFormMessage || "";
+
+  return "";
+}
+
 function renderResolvedDecisionMaker(person, label) {
   if (!person) {
     return '<div class="contact-person empty"><strong>' +
@@ -356,7 +495,7 @@ function renderResolvedContactPaths(paths = []) {
   );
 }
 
-function renderContactResolution(resolution) {
+function renderContactResolution(resolution, index) {
   const secondary = (resolution.secondaryDecisionMakers || [])
     .map((person, i) =>
       renderResolvedDecisionMaker(person, "Secondary " + (i + 1))
@@ -384,6 +523,12 @@ function renderContactResolution(resolution) {
         '</div>' +
       '</div>' +
 
+      '<div class="contact-resolution-actions">' +
+        '<button class="details-button outreach-compose-button" type="button" data-outreach-compose="' +
+          index +
+          '">Create Outreach Drafts</button>' +
+      '</div>' +
+      '<div id="outreach-output-' + index + '" class="outreach-output" hidden></div>' +
       '<div class="contact-resolution-grid">' +
         '<section>' +
           '<h5>Best decision-maker</h5>' +
@@ -822,6 +967,108 @@ form.addEventListener("submit", async (event) => {
 });
 
 resultsList.addEventListener("click", async (event) => {
+  const copyTrigger = event.target.closest("[data-copy-outreach]");
+
+  if (copyTrigger) {
+    const index = Number(copyTrigger.dataset.copyIndex);
+    const key = copyTrigger.dataset.copyOutreach;
+    const prospect = lastProspects[index];
+    const text = outreachTextForKey(prospect?.outreach, key);
+
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      const previous = copyTrigger.textContent;
+      copyTrigger.textContent = "Copied";
+      setTimeout(() => {
+        copyTrigger.textContent = previous;
+      }, 1200);
+    } catch {
+      copyTrigger.textContent = "Copy failed";
+    }
+
+    return;
+  }
+
+  const outreachTrigger = event.target.closest("[data-outreach-compose]");
+
+  if (outreachTrigger) {
+    const index = Number(outreachTrigger.dataset.outreachCompose);
+    const prospect = lastProspects[index];
+    const container = document.querySelector("#outreach-output-" + index);
+
+    if (
+      !prospect?.enrichment ||
+      !prospect?.scoring ||
+      !prospect?.contactResolution ||
+      !lastDiscovery ||
+      !container
+    ) {
+      return;
+    }
+
+    outreachTrigger.disabled = true;
+    outreachTrigger.textContent = "Creating Drafts…";
+    container.hidden = false;
+    container.innerHTML =
+      '<div class="outreach-loading"><div class="loader"></div><p>Agent 5 is composing evidence-based outreach drafts…</p></div>';
+
+    try {
+      const response = await fetch("/api/public/outreach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          industry: lastDiscovery.industry,
+          prospect: {
+            ...prospect,
+            market: lastDiscovery.market,
+            radiusMiles: lastDiscovery.radiusMiles
+          },
+          enrichment: prospect.enrichment,
+          scoring: prospect.scoring,
+          contactResolution: prospect.contactResolution
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const stage = data.diagnostic?.stage
+          ? " (" + data.diagnostic.stage + ")"
+          : "";
+
+        throw new Error(
+          (data.error || "Outreach drafts could not be created.") + stage
+        );
+      }
+
+      prospect.outreach = data.outreach;
+      container.innerHTML =
+        renderOutreachPackage(data.outreach, index) +
+        (data.persistence?.ok === false
+          ? '<div class="persistence-note">Outreach drafts were created, but they were not saved to Supabase.' +
+            (data.persistence?.diagnostic?.category
+              ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
+              : "") +
+            " Run migration 008 and retry.</div>"
+          : "");
+
+      outreachTrigger.textContent = "Drafts Created";
+      outreachTrigger.classList.add("created");
+      outreachTrigger.disabled = false;
+    } catch (error) {
+      container.innerHTML =
+        '<div class="persistence-note">' +
+        escapeHtml(error.message) +
+        "</div>";
+      outreachTrigger.textContent = "Retry Outreach Drafts";
+      outreachTrigger.disabled = false;
+    }
+
+    return;
+  }
+
   const contactTrigger = event.target.closest("[data-contact-resolve]");
 
   if (contactTrigger) {
@@ -874,7 +1121,7 @@ resultsList.addEventListener("click", async (event) => {
 
       prospect.contactResolution = data.resolution;
       container.innerHTML =
-        renderContactResolution(data.resolution) +
+        renderContactResolution(data.resolution, index) +
         (data.persistence?.ok === false
           ? '<div class="persistence-note">Contact resolution completed, but it was not saved to Supabase.' +
             (data.persistence?.diagnostic?.category
