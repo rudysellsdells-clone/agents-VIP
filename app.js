@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { discoverProspects } from "./agents/prospect-discovery.js";
+import { enrichProspect } from "./agents/prospect-enrichment.js";
 import {
   COMPANY_TYPE_IDS,
   getIndustryConfig,
@@ -11,7 +12,8 @@ import {
 } from "./config/industries.js";
 import {
   checkSupabaseConnection,
-  upsertDiscoveredProspects
+  upsertDiscoveredProspects,
+  upsertProspectEnrichment
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
@@ -354,6 +356,271 @@ function classifyAgentError(error) {
   };
 }
 
+
+function validateEnrichmentRequest(body) {
+  const industry =
+    typeof body.industry === "string" ? body.industry.trim() : "";
+  const config = getIndustryConfig(industry);
+
+  if (!config) {
+    throw validationError("Choose a supported industry.");
+  }
+
+  const prospect = body.prospect && typeof body.prospect === "object"
+    ? body.prospect
+    : null;
+
+  if (!prospect) {
+    throw validationError("A prospect is required for enrichment.");
+  }
+
+  const name =
+    typeof prospect.name === "string" ? prospect.name.trim() : "";
+  const website =
+    typeof prospect.website === "string" ? prospect.website.trim() : "";
+
+  if (!name || name.length > 180) {
+    throw validationError("A valid prospect name is required.");
+  }
+
+  let parsedWebsite;
+
+  try {
+    parsedWebsite = new URL(website);
+  } catch {
+    throw validationError("A valid prospect website is required.");
+  }
+
+  if (!["http:", "https:"].includes(parsedWebsite.protocol)) {
+    throw validationError("Prospect website must use HTTP or HTTPS.");
+  }
+
+  const cleanArray = (value, maxItems, maxLength) =>
+    Array.isArray(value)
+      ? value
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim())
+          .filter(Boolean)
+          .slice(0, maxItems)
+          .map((item) => item.slice(0, maxLength))
+      : [];
+
+  return {
+    industry,
+    prospect: {
+      name,
+      website: parsedWebsite.toString(),
+      city:
+        typeof prospect.city === "string"
+          ? prospect.city.trim().slice(0, 120)
+          : "",
+      state:
+        typeof prospect.state === "string"
+          ? prospect.state.trim().slice(0, 80)
+          : "",
+      phone:
+        typeof prospect.phone === "string"
+          ? prospect.phone.trim().slice(0, 80)
+          : null,
+      email:
+        typeof prospect.email === "string"
+          ? prospect.email.trim().slice(0, 254)
+          : null,
+      subindustry:
+        typeof prospect.subindustry === "string"
+          ? prospect.subindustry.trim().slice(0, 160)
+          : null,
+      companyType:
+        COMPANY_TYPE_IDS.includes(prospect.companyType)
+          ? prospect.companyType
+          : "unknown",
+      companyTypeConfidence: Number.isFinite(
+        Number(prospect.companyTypeConfidence)
+      )
+        ? Math.max(
+            0,
+            Math.min(100, Math.round(Number(prospect.companyTypeConfidence)))
+          )
+        : null,
+      capabilities: normalizeStringArray(
+        prospect.capabilities,
+        config.capabilities.map((item) => item.id)
+      ),
+      discoveryConfidence: Number.isFinite(
+        Number(prospect.discoveryConfidence)
+      )
+        ? Math.max(
+            0,
+            Math.min(100, Math.round(Number(prospect.discoveryConfidence)))
+          )
+        : null,
+      fitReasons: cleanArray(prospect.fitReasons, 6, 500),
+      evidence: Array.isArray(prospect.evidence)
+        ? prospect.evidence.slice(0, 8).map((item) => ({
+            url:
+              item && typeof item.url === "string"
+                ? item.url.slice(0, 1000)
+                : "",
+            fact:
+              item && typeof item.fact === "string"
+                ? item.fact.slice(0, 1000)
+                : ""
+          }))
+        : [],
+      market:
+        typeof prospect.market === "string"
+          ? prospect.market.trim().slice(0, 120)
+          : null,
+      radiusMiles: Number.isFinite(Number(prospect.radiusMiles))
+        ? Number(prospect.radiusMiles)
+        : null
+    }
+  };
+}
+
+async function runEnrichment(payload) {
+  const enrichment = await enrichProspect(payload);
+
+  let persistence;
+
+  try {
+    const saved = await upsertProspectEnrichment(
+      payload.prospect,
+      enrichment
+    );
+
+    persistence = {
+      ok: true,
+      saved: saved.length
+    };
+  } catch (error) {
+    console.error("Prospect enrichment persistence failed:", error);
+    persistence = {
+      ok: false,
+      saved: 0,
+      error:
+        "Enrichment completed but could not be saved to the prospect database."
+    };
+  }
+
+  return { enrichment, persistence };
+}
+
+async function handlePrivateEnrichment(req, res) {
+  const auth = isAuthorized(req);
+
+  if (!auth.ok) {
+    const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+    sendJson(res, statusCode, {
+      status: "error",
+      error: auth.reason
+    });
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(req);
+    const payload = validateEnrichmentRequest(body);
+    const { enrichment, persistence } = await runEnrichment(payload);
+
+    sendJson(res, 200, {
+      status: persistence.ok ? "ok" : "partial",
+      agent: "prospect-enrichment-v1",
+      persistence,
+      enrichment
+    });
+  } catch (error) {
+    console.error("Private enrichment failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "prospect-enrichment-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+
+    sendJson(res, classified.statusCode, {
+      status: "error",
+      agent: "prospect-enrichment-v1",
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
+    });
+  }
+}
+
+async function handlePublicEnrichment(req, res) {
+  try {
+    const body = await readJsonBody(req);
+    const payload = validateEnrichmentRequest(body);
+    const limit = consumePublicRateLimit(req);
+
+    if (!limit.allowed) {
+      const retryAfter = Math.max(
+        1,
+        Math.ceil((limit.resetAt - Date.now()) / 1000)
+      );
+
+      sendJson(
+        res,
+        429,
+        {
+          status: "error",
+          error: "Public research limit reached. Please try again later."
+        },
+        { "Retry-After": String(retryAfter) }
+      );
+      return;
+    }
+
+    const { enrichment, persistence } = await runEnrichment(payload);
+
+    sendJson(
+      res,
+      200,
+      {
+        status: persistence.ok ? "ok" : "partial",
+        agent: "prospect-enrichment-v1",
+        persistence,
+        limits: {
+          remainingThisHour: limit.remaining,
+          resetsAt: new Date(limit.resetAt).toISOString()
+        },
+        enrichment
+      },
+      {
+        "X-RateLimit-Limit": String(PUBLIC_MAX_SEARCHES),
+        "X-RateLimit-Remaining": String(limit.remaining)
+      }
+    );
+  } catch (error) {
+    console.error("Public enrichment failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "prospect-enrichment-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+
+    sendJson(res, classified.statusCode, {
+      status: "error",
+      agent: "prospect-enrichment-v1",
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
+    });
+  }
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -579,8 +846,28 @@ const server = http.createServer(async (req, res) => {
           maxResults: 10,
           searchesPerHour: PUBLIC_MAX_SEARCHES
         }
+      },
+      enrichment: {
+        privateEndpoint: {
+          available: Boolean(process.env.AGENT_API_TOKEN),
+          endpoint: "/api/agents/enrichment"
+        },
+        publicEndpoint: {
+          available: true,
+          endpoint: "/api/public/enrichment"
+        }
       }
     });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/agents/enrichment") {
+    await handlePrivateEnrichment(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/public/enrichment") {
+    await handlePublicEnrichment(req, res);
     return;
   }
 
