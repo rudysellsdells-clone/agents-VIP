@@ -1,5 +1,8 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { discoverDentalProspects } from "./agents/dental-discovery.js";
 import {
   checkSupabaseConnection,
@@ -7,10 +10,50 @@ import {
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
+const publicRateLimits = new Map();
 
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { "Content-Type": "application/json" });
+const PUBLIC_WINDOW_MS = 60 * 60 * 1000;
+const PUBLIC_MAX_SEARCHES = Math.max(
+  1,
+  Number(process.env.PUBLIC_SEARCHES_PER_HOUR || 3)
+);
+
+const STATIC_FILES = new Map([
+  ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
+  ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
+  ["/ui.js", { file: "ui.js", type: "text/javascript; charset=utf-8" }]
+]);
+
+function sendJson(res, statusCode, payload, headers = {}) {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+    ...headers
+  });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+async function sendStatic(res, pathname) {
+  const asset = STATIC_FILES.get(pathname);
+  if (!asset) return false;
+
+  try {
+    const content = await readFile(path.join(publicDir, asset.file));
+    res.writeHead(200, {
+      "Content-Type": asset.type,
+      "Cache-Control": asset.file === "index.html" ? "no-cache" : "public, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "SAMEORIGIN",
+      "Referrer-Policy": "strict-origin-when-cross-origin"
+    });
+    res.end(content);
+  } catch (error) {
+    console.error("Static asset error:", error);
+    sendJson(res, 500, { status: "error", error: "Unable to load application." });
+  }
+
+  return true;
 }
 
 async function readJsonBody(req, maxBytes = 32768) {
@@ -59,6 +102,117 @@ function isAuthorized(req) {
   return { ok: matches, reason: matches ? null : "Invalid bearer token." };
 }
 
+function getClientIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+
+  return req.socket.remoteAddress || "unknown";
+}
+
+function consumePublicRateLimit(req) {
+  const now = Date.now();
+  const ip = getClientIp(req);
+  const current = publicRateLimits.get(ip);
+
+  if (!current || now >= current.resetAt) {
+    const next = {
+      count: 1,
+      resetAt: now + PUBLIC_WINDOW_MS
+    };
+    publicRateLimits.set(ip, next);
+
+    return {
+      allowed: true,
+      remaining: PUBLIC_MAX_SEARCHES - 1,
+      resetAt: next.resetAt
+    };
+  }
+
+  if (current.count >= PUBLIC_MAX_SEARCHES) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: current.resetAt
+    };
+  }
+
+  current.count += 1;
+  publicRateLimits.set(ip, current);
+
+  return {
+    allowed: true,
+    remaining: Math.max(0, PUBLIC_MAX_SEARCHES - current.count),
+    resetAt: current.resetAt
+  };
+}
+
+function normalizeStringArray(value, allowed) {
+  if (!Array.isArray(value)) return [];
+
+  return [...new Set(
+    value
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => allowed.includes(item))
+  )];
+}
+
+function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
+  const market = typeof body.market === "string" ? body.market.trim() : "";
+  const radiusMiles = Number(body.radiusMiles ?? 25);
+  const maxResults = Number(body.maxResults ?? (publicRequest ? 5 : 15));
+
+  const maxRadius = publicRequest ? 100 : 250;
+  const maxCount = publicRequest ? 10 : 25;
+
+  if (market.length < 2 || market.length > 120) {
+    throw new Error("Enter a valid city, state, or market.");
+  }
+
+  if (
+    !Number.isFinite(radiusMiles) ||
+    radiusMiles < 1 ||
+    radiusMiles > maxRadius
+  ) {
+    throw new Error(`Radius must be between 1 and ${maxRadius} miles.`);
+  }
+
+  if (
+    !Number.isInteger(maxResults) ||
+    maxResults < 1 ||
+    maxResults > maxCount
+  ) {
+    throw new Error(`Number of prospects must be between 1 and ${maxCount}.`);
+  }
+
+  const priorities = normalizeStringArray(body.priorities, [
+    "implants",
+    "fullMouth",
+    "cosmetic",
+    "clearAligners",
+    "sedation"
+  ]);
+
+  const practiceTypes = normalizeStringArray(body.practiceTypes, [
+    "independent",
+    "small_group",
+    "unknown"
+  ]);
+
+  return {
+    market,
+    radiusMiles,
+    maxResults,
+    priorities,
+    practiceTypes: practiceTypes.length
+      ? practiceTypes
+      : ["independent", "small_group"]
+  };
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -87,7 +241,30 @@ async function checkOpenAI() {
   }
 }
 
-async function handleDentalDiscovery(req, res) {
+async function runDiscovery(payload) {
+  const discovery = await discoverDentalProspects(payload);
+
+  let persistence;
+
+  try {
+    const saved = await upsertDiscoveredProspects(discovery);
+    persistence = {
+      ok: true,
+      saved: saved.length
+    };
+  } catch (error) {
+    console.error("Prospect persistence failed:", error);
+    persistence = {
+      ok: false,
+      saved: 0,
+      error: "Results were found but could not be saved to the prospect database."
+    };
+  }
+
+  return { discovery, persistence };
+}
+
+async function handlePrivateDentalDiscovery(req, res) {
   const auth = isAuthorized(req);
 
   if (!auth.ok) {
@@ -99,73 +276,10 @@ async function handleDentalDiscovery(req, res) {
     return;
   }
 
-  let body;
-
   try {
-    body = await readJsonBody(req);
-  } catch (error) {
-    sendJson(res, 400, { status: "error", error: error.message });
-    return;
-  }
-
-  const market = typeof body.market === "string" ? body.market.trim() : "";
-  const radiusMiles = Number(body.radiusMiles ?? 50);
-  const maxResults = Number(body.maxResults ?? 15);
-
-  if (!market) {
-    sendJson(res, 400, {
-      status: "error",
-      error: "market is required, for example: Milwaukee, WI"
-    });
-    return;
-  }
-
-  if (
-    !Number.isFinite(radiusMiles) ||
-    radiusMiles < 1 ||
-    radiusMiles > 250
-  ) {
-    sendJson(res, 400, {
-      status: "error",
-      error: "radiusMiles must be between 1 and 250."
-    });
-    return;
-  }
-
-  if (
-    !Number.isInteger(maxResults) ||
-    maxResults < 1 ||
-    maxResults > 25
-  ) {
-    sendJson(res, 400, {
-      status: "error",
-      error: "maxResults must be an integer between 1 and 25."
-    });
-    return;
-  }
-
-  try {
-    const discovery = await discoverDentalProspects({
-      market,
-      radiusMiles,
-      maxResults
-    });
-
-    let persistence;
-
-    try {
-      const saved = await upsertDiscoveredProspects(discovery);
-      persistence = {
-        ok: true,
-        saved: saved.length
-      };
-    } catch (error) {
-      persistence = {
-        ok: false,
-        saved: 0,
-        error: error.message
-      };
-    }
+    const body = await readJsonBody(req);
+    const payload = validateDiscoveryRequest(body);
+    const { discovery, persistence } = await runDiscovery(payload);
 
     sendJson(res, 200, {
       status: persistence.ok ? "ok" : "partial",
@@ -175,9 +289,13 @@ async function handleDentalDiscovery(req, res) {
       discovery
     });
   } catch (error) {
-    console.error("Dental discovery failed:", error);
+    console.error("Private dental discovery failed:", error);
+    const validationError =
+      error.message.startsWith("Enter ") ||
+      error.message.startsWith("Radius ") ||
+      error.message.startsWith("Number ");
 
-    sendJson(res, 500, {
+    sendJson(res, validationError ? 400 : 500, {
       status: "error",
       agent: "dental-discovery-v1",
       error: error.message
@@ -185,8 +303,71 @@ async function handleDentalDiscovery(req, res) {
   }
 }
 
+async function handlePublicDentalDiscovery(req, res) {
+  const limit = consumePublicRateLimit(req);
+
+  if (!limit.allowed) {
+    const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
+
+    sendJson(
+      res,
+      429,
+      {
+        status: "error",
+        error: "Public search limit reached. Please try again later."
+      },
+      { "Retry-After": String(retryAfter) }
+    );
+    return;
+  }
+
+  try {
+    const body = await readJsonBody(req);
+    const payload = validateDiscoveryRequest(body, { publicRequest: true });
+    const { discovery, persistence } = await runDiscovery(payload);
+
+    sendJson(
+      res,
+      200,
+      {
+        status: persistence.ok ? "ok" : "partial",
+        agent: "dental-discovery-v1",
+        persistence,
+        limits: {
+          remainingThisHour: limit.remaining,
+          resetsAt: new Date(limit.resetAt).toISOString()
+        },
+        discovery
+      },
+      {
+        "X-RateLimit-Limit": String(PUBLIC_MAX_SEARCHES),
+        "X-RateLimit-Remaining": String(limit.remaining)
+      }
+    );
+  } catch (error) {
+    console.error("Public dental discovery failed:", error);
+    const validationError =
+      error.message.startsWith("Enter ") ||
+      error.message.startsWith("Radius ") ||
+      error.message.startsWith("Number ");
+
+    sendJson(res, validationError ? 400 : 500, {
+      status: "error",
+      agent: "dental-discovery-v1",
+      error: validationError
+        ? error.message
+        : "The prospecting agent could not complete this search. Please try again."
+    });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  if (req.method === "GET" && STATIC_FILES.has(url.pathname)) {
+    await sendStatic(res, url.pathname);
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/health") {
     const [supabase, openai] = await Promise.all([
@@ -207,8 +388,16 @@ const server = http.createServer(async (req, res) => {
       supabase,
       openai,
       dentalDiscovery: {
-        available: Boolean(process.env.AGENT_API_TOKEN),
-        endpoint: "/api/agents/dental-discovery"
+        privateEndpoint: {
+          available: Boolean(process.env.AGENT_API_TOKEN),
+          endpoint: "/api/agents/dental-discovery"
+        },
+        publicEndpoint: {
+          available: true,
+          endpoint: "/api/public/dental-discovery",
+          maxResults: 10,
+          searchesPerHour: PUBLIC_MAX_SEARCHES
+        }
       }
     });
     return;
@@ -218,26 +407,15 @@ const server = http.createServer(async (req, res) => {
     req.method === "POST" &&
     url.pathname === "/api/agents/dental-discovery"
   ) {
-    await handleDentalDiscovery(req, res);
+    await handlePrivateDentalDiscovery(req, res);
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/") {
-    sendJson(res, 200, {
-      status: "ok",
-      service: "VIP Prospecting Agents",
-      version: "0.2.0",
-      message: "Agent server is running.",
-      health: "/health",
-      agents: [
-        {
-          id: "dental-discovery-v1",
-          method: "POST",
-          endpoint: "/api/agents/dental-discovery",
-          authentication: "Bearer token required"
-        }
-      ]
-    });
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/public/dental-discovery"
+  ) {
+    await handlePublicDentalDiscovery(req, res);
     return;
   }
 

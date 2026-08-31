@@ -70,4 +70,28 @@ GET /health
 ```
 
 Health reports Node, Supabase, OpenAI, and whether the protected dental
-discovery endpoint is configured.
+discovery endpoint is configured.\n
+## Public user interface
+
+The root URL serves a responsive dental prospect finder. The browser calls:
+
+```
+POST /api/public/dental-discovery
+```
+
+The public route never receives server secrets. It currently enforces:
+
+- Maximum 10 prospects per search.
+- Maximum 100-mile radius.
+- In-memory per-IP hourly search limiting.
+- Server-side input validation.
+
+Set `PUBLIC_SEARCHES_PER_HOUR` to change the default public limit of 3 searches
+per hour. The in-memory limiter is intentionally simple for V1; move it to a
+durable store before high-volume public promotion.
+
+The existing bearer-token endpoint remains available for internal automation:
+
+```
+POST /api/agents/dental-discovery
+```

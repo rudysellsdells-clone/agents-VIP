@@ -80,6 +80,20 @@ was included. If evidence is weak, lower confidence or omit the prospect.
   outputType: DentalDiscoveryOutput
 });
 
+const SERVICE_LABELS = {
+  implants: "dental implants",
+  fullMouth: "full-mouth rehabilitation or reconstruction",
+  cosmetic: "cosmetic dentistry",
+  clearAligners: "clear aligners or Invisalign",
+  sedation: "sedation dentistry"
+};
+
+const PRACTICE_TYPE_LABELS = {
+  independent: "independent practices",
+  small_group: "small local groups",
+  unknown: "practices whose ownership is not yet clear"
+};
+
 function normalizeWebsite(value) {
   try {
     const url = new URL(value);
@@ -125,15 +139,38 @@ function dedupeProspects(prospects, maxResults) {
 export async function discoverDentalProspects({
   market,
   radiusMiles = 50,
-  maxResults = 15
+  maxResults = 15,
+  priorities = [],
+  practiceTypes = ["independent", "small_group"]
 }) {
+  const priorityText = priorities.length
+    ? priorities
+        .map((item) => SERVICE_LABELS[item])
+        .filter(Boolean)
+        .join(", ")
+    : "dental implants, full-mouth rehabilitation, cosmetic dentistry, clear aligners, and sedation dentistry";
+
+  const practiceTypeText = practiceTypes
+    .map((item) => PRACTICE_TYPE_LABELS[item])
+    .filter(Boolean)
+    .join(" and ");
+
   const input = `
 Find up to ${maxResults} dental practices that are strong discovery candidates
 within approximately ${radiusMiles} miles of ${market}.
 
-This is the first stage of a B2B prospecting pipeline. Favor verified,
-independent or small-group practices with higher-value dental services. Do not
-force the count: return fewer prospects if the public evidence is insufficient.
+This is the first stage of a B2B prospecting pipeline. Favor verified
+${practiceTypeText || "independent or small-group practices"}.
+
+The user especially wants practices relevant to these service priorities:
+${priorityText}.
+
+Treat those service priorities as ranking preferences, not permission to invent
+services. A practice may still be useful if it has other strong high-value
+services, but rank matches higher when the evidence is comparable.
+
+Do not force the count: return fewer prospects if the public evidence is
+insufficient.
 
 For each practice, verify its real website, city/state, relevant services, and
 why it belongs in the discovery pool. Use multiple searches as needed and cite

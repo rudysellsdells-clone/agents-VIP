@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="AI-assisted dental prospect discovery from Web Search Professionals.">
+  <title>Dental Prospect Finder | Web Search Professionals</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Web Search Professionals Prospect Intelligence">
+      <span class="brand-mark">WSP</span>
+      <span>
+        <strong>Prospect Intelligence</strong>
+        <small>Web Search Professionals</small>
+      </span>
+    </a>
+    <span class="status-pill"><span class="status-dot"></span> AI research agent</span>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Dental Prospect Discovery</p>
+        <h1>Find dental practices worth your attention.</h1>
+        <p class="hero-text">
+          Search a market for independent and small-group practices with strong
+          service potential. The agent researches public web sources, verifies
+          each candidate, and explains why it made the list.
+        </p>
+        <div class="trust-row">
+          <span>Public business data only</span>
+          <span>Evidence-backed results</span>
+          <span>No patient data</span>
+        </div>
+      </div>
+
+      <div class="hero-card">
+        <div class="metric">
+          <strong>01</strong>
+          <span>Discovery agent</span>
+        </div>
+        <div class="metric">
+          <strong>10</strong>
+          <span>Prospects per public search</span>
+        </div>
+        <div class="metric">
+          <strong>100 mi</strong>
+          <span>Public search radius</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <aside class="search-panel">
+        <div class="panel-heading">
+          <p class="eyebrow">Start a search</p>
+          <h2>Define your market</h2>
+          <p>Use a city and state for the most consistent results.</p>
+        </div>
+
+        <form id="search-form">
+          <label>
+            Market
+            <input id="market" name="market" type="text" placeholder="Milwaukee, WI" maxlength="120" required>
+          </label>
+
+          <div class="field-grid">
+            <label>
+              Radius
+              <select id="radius" name="radiusMiles">
+                <option value="10">10 miles</option>
+                <option value="25" selected>25 miles</option>
+                <option value="50">50 miles</option>
+                <option value="75">75 miles</option>
+                <option value="100">100 miles</option>
+              </select>
+            </label>
+
+            <label>
+              Prospects
+              <select id="max-results" name="maxResults">
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
+                <option value="8">8</option>
+                <option value="10">10</option>
+              </select>
+            </label>
+          </div>
+
+          <fieldset>
+            <legend>Prioritize services</legend>
+            <div class="check-grid">
+              <label class="check"><input type="checkbox" name="priority" value="implants" checked><span>Implants</span></label>
+              <label class="check"><input type="checkbox" name="priority" value="fullMouth" checked><span>Full-mouth</span></label>
+              <label class="check"><input type="checkbox" name="priority" value="cosmetic" checked><span>Cosmetic</span></label>
+              <label class="check"><input type="checkbox" name="priority" value="clearAligners"><span>Clear aligners</span></label>
+              <label class="check"><input type="checkbox" name="priority" value="sedation"><span>Sedation</span></label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Practice type</legend>
+            <div class="check-grid">
+              <label class="check"><input type="checkbox" name="practiceType" value="independent" checked><span>Independent</span></label>
+              <label class="check"><input type="checkbox" name="practiceType" value="small_group" checked><span>Small group</span></label>
+              <label class="check"><input type="checkbox" name="practiceType" value="unknown"><span>Unknown ownership</span></label>
+            </div>
+          </fieldset>
+
+          <button id="search-button" class="primary-button" type="submit">
+            <span>Find prospects</span>
+            <span aria-hidden="true">→</span>
+          </button>
+
+          <p class="form-note">Public searches are rate-limited to control research costs.</p>
+        </form>
+      </aside>
+
+      <section class="results-panel" aria-live="polite">
+        <div id="empty-state" class="empty-state">
+          <div class="empty-icon">◎</div>
+          <h2>Your prospect list will appear here.</h2>
+          <p>
+            Start with a focused market. Five well-researched prospects are more
+            useful than a hundred unqualified names.
+          </p>
+        </div>
+
+        <div id="loading-state" class="loading-state" hidden>
+          <div class="loader"></div>
+          <p class="eyebrow">Research in progress</p>
+          <h2 id="loading-title">Searching the market…</h2>
+          <p id="loading-message">Looking for credible dental practice candidates.</p>
+        </div>
+
+        <div id="error-state" class="message-card error-card" hidden>
+          <p class="eyebrow">Search issue</p>
+          <h2>We couldn't complete that search.</h2>
+          <p id="error-message"></p>
+          <button id="try-again" class="secondary-button" type="button">Try again</button>
+        </div>
+
+        <div id="results-state" hidden>
+          <div class="results-header">
+            <div>
+              <p class="eyebrow">Discovery results</p>
+              <h2 id="results-title"></h2>
+              <p id="results-summary"></p>
+            </div>
+            <button id="export-csv" class="secondary-button" type="button">Export CSV</button>
+          </div>
+
+          <div id="results-list" class="results-list"></div>
+
+          <div id="persistence-note" class="persistence-note" hidden></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="how-it-works">
+      <div>
+        <p class="eyebrow">How it works</p>
+        <h2>Research first. Score later.</h2>
+      </div>
+      <div class="steps">
+        <article><span>1</span><h3>Discover</h3><p>Finds real practices in the requested market.</p></article>
+        <article><span>2</span><h3>Verify</h3><p>Checks first-party sites and supporting public sources.</p></article>
+        <article><span>3</span><h3>Explain</h3><p>Shows services, fit reasons, confidence, and evidence.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Web Search Professionals</span>
+    <span>Prospect Intelligence • Agent 1</span>
+  </footer>
+
+  <script type="module" src="/ui.js"></script>
+</body>
+</html>
