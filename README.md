@@ -1,97 +1,119 @@
-# VIP Prospecting Agents
+# VIP Prospect Intelligence
 
-Node.js agent service for B2B prospect discovery and qualification.
+Node.js B2B prospect discovery service for Web Search Professionals and
+Marketing VIP.
 
-## Agent 1: Dental Prospect Discovery
+## Universal Prospect Discovery
 
-The first agent discovers independent and small-group dental practices in a
-requested market using public web information. It records evidence, relevant
-services, and discovery confidence, then upserts candidates into Supabase with
-status `DISCOVERED`.
+Agent 1 now uses one discovery engine with industry-specific playbooks.
 
-It does **not** collect patient information, personal contact information, or
-make the final sales-opportunity score.
+Initial verticals:
 
-### Required environment variables
+- Dental
+- Construction & Trades
+- Legal Services
+- Machine Shops & Light Manufacturing
+
+Each playbook defines the business types, capabilities, specialties, and
+research signals that matter for that vertical.
+
+The discovery workflow is intentionally evidence-first:
+
+1. A web-research agent searches public business information.
+2. A formatter converts the research dossier into plain JSON.
+3. Node.js parses and validates the JSON locally with Zod.
+4. Duplicate websites are removed.
+5. Results are shown in the UI and upserted into Supabase.
+
+Discovery confidence is not a final sales opportunity score.
+
+## Public UI
+
+The root URL serves the multi-industry Prospect Intelligence interface.
+
+The UI dynamically loads its industry filters from:
+
+```
+GET /api/industries
+```
+
+Public searches use:
+
+```
+POST /api/public/discovery
+```
+
+Example request:
+
+```json
+{
+  "industry": "construction",
+  "market": "Milwaukee, WI",
+  "radiusMiles": 25,
+  "maxResults": 5,
+  "priorities": ["roofing", "hvac", "remodeling"],
+  "companyTypes": ["independent", "small_group"]
+}
+```
+
+Public requests are limited to 10 results, a 100-mile radius, and an in-memory
+per-IP hourly rate limit. Set `PUBLIC_SEARCHES_PER_HOUR` to override the
+default of 20.
+
+## Private API
+
+Authenticated integrations can use:
+
+```
+POST /api/agents/discovery
+Authorization: Bearer <AGENT_API_TOKEN>
+```
+
+The previous dental endpoints remain available as compatibility aliases:
+
+```
+POST /api/public/dental-discovery
+POST /api/agents/dental-discovery
+```
+
+## Supabase
+
+Run both migrations in order:
+
+```
+supabase/migrations/001_create_prospects.sql
+supabase/migrations/002_generalize_prospects.sql
+```
+
+Migration 002 adds:
+
+- `subindustry`
+- `company_type`
+- `company_type_confidence`
+- `capabilities`
+
+It also backfills existing dental records from the original dental-era fields.
+
+## Required environment variables
 
 - `OPENAI_API_KEY`
 - `SUPABASE_URL`
-- `SUPABASE_SECRET_KEY` (recommended) or legacy
-  `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SECRET_KEY` or legacy `SUPABASE_SERVICE_ROLE_KEY`
 - `AGENT_API_TOKEN`
 - `NODE_ENV=production`
 
 Optional:
 
-- `DISCOVERY_MODEL` (defaults to `gpt-5.4-mini`)
+- `DISCOVERY_MODEL`
+- `DISCOVERY_RESEARCH_MODEL`
+- `DISCOVERY_FORMAT_MODEL`
+- `PUBLIC_SEARCHES_PER_HOUR`
 
-Generate a strong API token on the server with:
-
-```bash
-openssl rand -hex 32
-```
-
-Store the result only in the cPanel app environment as `AGENT_API_TOKEN`.
-
-### Database setup
-
-Run the SQL in:
-
-```
-supabase/migrations/001_create_prospects.sql
-```
-
-against the `agents-VIP` Supabase project before expecting persistence to
-succeed.
-
-### Trigger Agent 1
-
-```bash
-curl -X POST "https://agents-4.websearchpros.ai/api/agents/dental-discovery" \
-  -H "Authorization: Bearer $AGENT_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "market": "Milwaukee, WI",
-    "radiusMiles": 50,
-    "maxResults": 10
-  }'
-```
-
-The endpoint accepts:
-
-- `market`: required city/region string
-- `radiusMiles`: 1-250, default 50
-- `maxResults`: 1-25, default 15
-
-### Health
+## Health
 
 ```
 GET /health
 ```
 
-Health reports Node, Supabase, OpenAI, and whether the protected dental
-discovery endpoint is configured.\n
-## Public user interface
-
-The root URL serves a responsive dental prospect finder. The browser calls:
-
-```
-POST /api/public/dental-discovery
-```
-
-The public route never receives server secrets. It currently enforces:
-
-- Maximum 10 prospects per search.
-- Maximum 100-mile radius.
-- In-memory per-IP hourly search limiting.
-- Server-side input validation.
-
-Set `PUBLIC_SEARCHES_PER_HOUR` to change the default public limit of 20 searches
-per hour. The in-memory limiter is intentionally simple for V1; move it to a
-durable store before high-volume public promotion.
-
-The existing bearer-token endpoint remains available for internal automation:
-
-```
-POST /api/agents/dental-discovery
-```
+The health endpoint reports Node, OpenAI, Supabase, public/private discovery
+availability, and the enabled industries.
