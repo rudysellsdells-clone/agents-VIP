@@ -3,8 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="AI-assisted dental prospect discovery from Web Search Professionals.">
-  <title>Dental Prospect Finder | Web Search Professionals</title>
+  <meta
+    name="description"
+    content="AI-assisted B2B prospect discovery from Web Search Professionals."
+  >
+  <title>Prospect Intelligence | Web Search Professionals</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -16,30 +19,34 @@
         <small>Web Search Professionals</small>
       </span>
     </a>
-    <span class="status-pill"><span class="status-dot"></span> AI research agent</span>
+    <span class="status-pill">
+      <span class="status-dot"></span>
+      Multi-industry AI research
+    </span>
   </header>
 
   <main>
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Dental Prospect Discovery</p>
-        <h1>Find dental practices worth your attention.</h1>
+        <p class="eyebrow">B2B Prospect Discovery</p>
+        <h1>Find businesses worth your attention.</h1>
         <p class="hero-text">
-          Search a market for independent and small-group practices with strong
-          service potential. The agent researches public web sources, verifies
-          each candidate, and explains why it made the list.
+          Choose an industry and a market. The research agent finds real
+          businesses, verifies their public web presence, identifies relevant
+          specialties and capabilities, and explains why each candidate belongs
+          on the shortlist.
         </p>
         <div class="trust-row">
           <span>Public business data only</span>
           <span>Evidence-backed results</span>
-          <span>No patient data</span>
+          <span>Industry-specific research</span>
         </div>
       </div>
 
       <div class="hero-card">
         <div class="metric">
-          <strong>01</strong>
-          <span>Discovery agent</span>
+          <strong>04</strong>
+          <span>Industry playbooks</span>
         </div>
         <div class="metric">
           <strong>10</strong>
@@ -57,13 +64,29 @@
         <div class="panel-heading">
           <p class="eyebrow">Start a search</p>
           <h2>Define your market</h2>
-          <p>Use a city and state for the most consistent results.</p>
+          <p id="industry-description">
+            Choose an industry to load its prospecting criteria.
+          </p>
         </div>
 
         <form id="search-form">
           <label>
+            Industry
+            <select id="industry" name="industry" required>
+              <option value="">Loading industries…</option>
+            </select>
+          </label>
+
+          <label>
             Market
-            <input id="market" name="market" type="text" placeholder="Milwaukee, WI" maxlength="120" required>
+            <input
+              id="market"
+              name="market"
+              type="text"
+              placeholder="Milwaukee, WI"
+              maxlength="120"
+              required
+            >
           </label>
 
           <div class="field-grid">
@@ -90,23 +113,13 @@
           </div>
 
           <fieldset>
-            <legend>Prioritize services</legend>
-            <div class="check-grid">
-              <label class="check"><input type="checkbox" name="priority" value="implants" checked><span>Implants</span></label>
-              <label class="check"><input type="checkbox" name="priority" value="fullMouth" checked><span>Full-mouth</span></label>
-              <label class="check"><input type="checkbox" name="priority" value="cosmetic" checked><span>Cosmetic</span></label>
-              <label class="check"><input type="checkbox" name="priority" value="clearAligners"><span>Clear aligners</span></label>
-              <label class="check"><input type="checkbox" name="priority" value="sedation"><span>Sedation</span></label>
-            </div>
+            <legend id="priority-legend">Prioritize capabilities</legend>
+            <div id="priority-grid" class="check-grid"></div>
           </fieldset>
 
           <fieldset>
-            <legend>Practice type</legend>
-            <div class="check-grid">
-              <label class="check"><input type="checkbox" name="practiceType" value="independent" checked><span>Independent</span></label>
-              <label class="check"><input type="checkbox" name="practiceType" value="small_group" checked><span>Small group</span></label>
-              <label class="check"><input type="checkbox" name="practiceType" value="unknown"><span>Unknown ownership</span></label>
-            </div>
+            <legend id="company-type-legend">Company type</legend>
+            <div id="company-type-grid" class="check-grid"></div>
           </fieldset>
 
           <button id="search-button" class="primary-button" type="submit">
@@ -114,17 +127,20 @@
             <span aria-hidden="true">→</span>
           </button>
 
-          <p class="form-note">Public searches are rate-limited to control research costs.</p>
+          <p class="form-note">
+            Searches use public business information and are rate-limited to
+            control research costs.
+          </p>
         </form>
       </aside>
 
       <section class="results-panel" aria-live="polite">
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">◎</div>
-          <h2>Your prospect list will appear here.</h2>
+          <h2>Your prospect shortlist will appear here.</h2>
           <p>
-            Start with a focused market. Five well-researched prospects are more
-            useful than a hundred unqualified names.
+            Start with a focused market and a few priorities. Evidence-backed
+            prospects are more useful than a long list of unqualified names.
           </p>
         </div>
 
@@ -132,14 +148,18 @@
           <div class="loader"></div>
           <p class="eyebrow">Research in progress</p>
           <h2 id="loading-title">Searching the market…</h2>
-          <p id="loading-message">Looking for credible dental practice candidates.</p>
+          <p id="loading-message">
+            Looking for credible business candidates.
+          </p>
         </div>
 
         <div id="error-state" class="message-card error-card" hidden>
           <p class="eyebrow">Search issue</p>
           <h2>We couldn't complete that search.</h2>
           <p id="error-message"></p>
-          <button id="try-again" class="secondary-button" type="button">Try again</button>
+          <button id="try-again" class="secondary-button" type="button">
+            Try again
+          </button>
         </div>
 
         <div id="results-state" hidden>
@@ -149,7 +169,9 @@
               <h2 id="results-title"></h2>
               <p id="results-summary"></p>
             </div>
-            <button id="export-csv" class="secondary-button" type="button">Export CSV</button>
+            <button id="export-csv" class="secondary-button" type="button">
+              Export CSV
+            </button>
           </div>
 
           <div id="results-list" class="results-list"></div>
@@ -162,19 +184,31 @@
     <section class="how-it-works">
       <div>
         <p class="eyebrow">How it works</p>
-        <h2>Research first. Score later.</h2>
+        <h2>One engine. Industry-specific intelligence.</h2>
       </div>
       <div class="steps">
-        <article><span>1</span><h3>Discover</h3><p>Finds real practices in the requested market.</p></article>
-        <article><span>2</span><h3>Verify</h3><p>Checks first-party sites and supporting public sources.</p></article>
-        <article><span>3</span><h3>Explain</h3><p>Shows services, fit reasons, confidence, and evidence.</p></article>
+        <article>
+          <span>1</span>
+          <h3>Discover</h3>
+          <p>Finds businesses that match the selected vertical and market.</p>
+        </article>
+        <article>
+          <span>2</span>
+          <h3>Verify</h3>
+          <p>Checks first-party sites and supporting public evidence.</p>
+        </article>
+        <article>
+          <span>3</span>
+          <h3>Explain</h3>
+          <p>Shows capabilities, fit reasons, confidence, and sources.</p>
+        </article>
       </div>
     </section>
   </main>
 
   <footer>
     <span>Web Search Professionals</span>
-    <span>Prospect Intelligence • Agent 1</span>
+    <span>Prospect Intelligence • Universal Discovery</span>
   </footer>
 
   <script type="module" src="/ui.js"></script>
