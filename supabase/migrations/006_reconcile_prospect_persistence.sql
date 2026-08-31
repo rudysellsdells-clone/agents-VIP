@@ -1,4 +1,4 @@
--- Reconcile the prospects table for Agents 1-3.
+-- Reconcile the prospects table for Agents 1-5.
 -- Safe to run repeatedly. This migration is intentionally idempotent.
 
 alter table public.prospects
