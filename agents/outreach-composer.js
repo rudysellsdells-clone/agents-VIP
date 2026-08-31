@@ -12,6 +12,32 @@ const EmailDraft = z.object({
   body: z.string().min(1).max(5000)
 });
 
+const PersuasionFramework = z.object({
+  primary: z.enum([
+    "fomo",
+    "loss_aversion",
+    "opportunity_cost",
+    "social_proof",
+    "specificity",
+    "contrast",
+    "authority",
+    "reciprocity"
+  ]),
+  secondary: z.enum([
+    "fomo",
+    "loss_aversion",
+    "opportunity_cost",
+    "social_proof",
+    "specificity",
+    "contrast",
+    "authority",
+    "reciprocity"
+  ]).nullable(),
+  whyItFits: z.string().min(1),
+  evidenceBasis: z.array(z.string().min(1)).min(1).max(6),
+  applicationRule: z.string().min(1)
+});
+
 const OutreachPackage = z.object({
   industry: z.string().min(1),
   companyName: z.string().min(1),
@@ -25,6 +51,7 @@ const OutreachPackage = z.object({
     "multi_channel"
   ]),
   personalizationSummary: z.string().min(1),
+  persuasionFramework: PersuasionFramework,
   primaryEmail: EmailDraft,
   followUpEmail: EmailDraft,
   linkedinMessage: z.string().min(1).max(1800),
@@ -64,6 +91,32 @@ const outreachAgent = new Agent({
     "",
     "Do not claim certainty about internal business problems. Phrase marketing",
     "observations as reasonable opportunities or questions when appropriate.",
+    "",
+    "Choose one primary persuasion framework that best fits the verified research.",
+    "You may use one secondary framework only when it adds a distinct useful layer.",
+    "Allowed frameworks:",
+    "- fomo: emphasize a real, evidence-supported risk of missing a market, growth,",
+    "  competitive, timing, or visibility opportunity. Never invent scarcity,",
+    "  deadlines, competitor activity, or fake urgency.",
+    "- loss_aversion: frame an evidence-supported cost of leaving an opportunity",
+    "  unaddressed without exaggerating losses.",
+    "- opportunity_cost: show what continued inaction may reasonably leave on the",
+    "  table, based on the supplied opportunity signals.",
+    "- social_proof: use only when the supplied context contains a legitimate",
+    "  market, review, peer, or competitive signal. Never invent customer counts,",
+    "  peer behavior, adoption rates, or testimonials.",
+    "- specificity: lead with one concrete, verified observation rather than a",
+    "  generic marketing claim.",
+    "- contrast: compare the current public-facing experience with a clearly",
+    "  supported better path, without claiming private performance.",
+    "- authority: rely on demonstrated expertise, capability, or standards only",
+    "  when supported by the supplied context.",
+    "- reciprocity: lead by offering a useful observation, idea, or perspective",
+    "  before asking for time.",
+    "",
+    "FOMO is not a default. Use it only when the research makes a genuine",
+    "missed-opportunity or timing argument credible. In many B2B cases,",
+    "specificity + opportunity cost will be more natural than overt urgency.",
     "",
     "Primary email:",
     "- short, personal, and conversational;",
@@ -232,6 +285,17 @@ export async function composeOutreach({
       contactResolution.outreachAngle?.recommendedChannel || "multi_channel",
     personalizationSummary:
       "Why this outreach is relevant and what evidence it uses.",
+    persuasionFramework: {
+      primary: "specificity",
+      secondary: "opportunity_cost",
+      whyItFits:
+        "Why these principles fit the verified business opportunity.",
+      evidenceBasis: [
+        "Specific verified research fact supporting this framework."
+      ],
+      applicationRule:
+        "How the concept should shape the outreach without creating unsupported claims."
+    },
     primaryEmail: {
       subject: "Short relevant subject line",
       body: "Concise personalized email body."
@@ -274,6 +338,11 @@ export async function composeOutreach({
     "- Do not mention the numeric opportunity score to the prospect.",
     "- Do not say the prospect was scored, enriched, monitored, or researched.",
     "- Do not write as though we know private internal performance.",
+    "- Select the persuasion framework from the allowed list based on the research.",
+    "- Every persuasion-framework evidenceBasis item must come from the supplied context.",
+    "- If using FOMO, loss aversion, social proof, authority, or contrast, the",
+    "  factual basis must be explicitly present in the supplied context.",
+    "- Use the persuasion principle to shape emphasis and framing, not to manufacture facts.",
     "- Keep the CTA conversational and low-friction.",
     "- Return JSON only."
   ].join("\n");
