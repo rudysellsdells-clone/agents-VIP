@@ -218,3 +218,25 @@ Agent 3 stores:
 - `scored_at`
 
 A scored prospect is moved to status `SCORED`.
+
+
+## Persistence diagnostics and repair
+
+Release 0.6.1 hardens Supabase persistence for both supported server credential
+types:
+
+- New `sb_secret_...` keys are sent on the `apikey` header only.
+- Legacy `service_role` JWT keys are sent on both `apikey` and
+  `Authorization: Bearer ...` so they can bypass RLS as intended.
+
+The `/health` endpoint now checks the actual `prospects` table and validates
+that all columns required by Agents 1-3 are available.
+
+If migrations were applied out of order, run the idempotent repair migration:
+
+```
+supabase/migrations/006_reconcile_prospect_persistence.sql
+```
+
+This migration reconciles the Agent 1-3 schema, indexes, constraints, RLS
+enablement, and backend `service_role` table grants.
