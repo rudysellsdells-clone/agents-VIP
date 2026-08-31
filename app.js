@@ -37,6 +37,14 @@ const CONTACT_RESOLUTION_MIN_SCORE = Math.max(
   Math.min(100, Number(process.env.CONTACT_RESOLUTION_MIN_SCORE || 65))
 );
 
+// Hard ceiling for the upcoming automated qualification queue.
+// Even if the environment variable is set higher, this release will not
+// advertise or accept a qualification-job size above 100 records.
+const QUALIFICATION_JOB_MAX_RECORDS = Math.max(
+  1,
+  Math.min(100, Number(process.env.QUALIFICATION_JOB_MAX_RECORDS || 100))
+);
+
 const STATIC_FILES = new Map([
   ["/", { file: "index.html", type: "text/html; charset=utf-8" }],
   ["/styles.css", { file: "styles.css", type: "text/css; charset=utf-8" }],
@@ -1654,6 +1662,11 @@ const server = http.createServer(async (req, res) => {
           available: true,
           endpoint: "/api/public/outreach"
         }
+      },
+      qualificationAutomation: {
+        enabled: false,
+        plannedStages: ["enrichment", "scoring", "contact_resolution"],
+        maxRecordsPerJob: QUALIFICATION_JOB_MAX_RECORDS
       }
     });
     return;
