@@ -239,7 +239,7 @@ function classifyAgentError(error) {
       statusCode: 503,
       publicMessage:
         "OpenAI API billing or quota is not available for this project. Check the API Platform billing/usage settings for the key used by this app.",
-      diagnostic: { provider: "openai", category: "quota", status, code: code || null }
+      diagnostic: { provider: "openai", category: "quota", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -248,7 +248,7 @@ function classifyAgentError(error) {
       statusCode: 503,
       publicMessage:
         "The OpenAI API is currently rate-limiting this agent. Please retry shortly.",
-      diagnostic: { provider: "openai", category: "rate_limit", status, code: code || null }
+      diagnostic: { provider: "openai", category: "rate_limit", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -257,7 +257,7 @@ function classifyAgentError(error) {
       statusCode: 503,
       publicMessage:
         "The OpenAI API key configured on the server was rejected. Check OPENAI_API_KEY in the cPanel app environment.",
-      diagnostic: { provider: "openai", category: "authentication", status, code: code || null }
+      diagnostic: { provider: "openai", category: "authentication", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -266,7 +266,7 @@ function classifyAgentError(error) {
       statusCode: 503,
       publicMessage:
         "The OpenAI project does not currently have permission to run this agent or one of its tools.",
-      diagnostic: { provider: "openai", category: "permission", status, code: code || null }
+      diagnostic: { provider: "openai", category: "permission", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -280,7 +280,7 @@ function classifyAgentError(error) {
       statusCode: 504,
       publicMessage:
         "The research request took too long to finish. This may be a server or proxy timeout rather than a search-quality problem.",
-      diagnostic: { provider: "runtime", category: "timeout", status, code: code || null }
+      diagnostic: { provider: "runtime", category: "timeout", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -289,7 +289,7 @@ function classifyAgentError(error) {
       statusCode: 500,
       publicMessage:
         "The agent request reached OpenAI but its tool or structured-output configuration was rejected.",
-      diagnostic: { provider: "openai", category: "request_configuration", status, code: code || null }
+      diagnostic: { provider: "openai", category: "request_configuration", stage: error?.agentStage || null, status, code: code || null }
     };
   }
 
@@ -300,6 +300,7 @@ function classifyAgentError(error) {
     diagnostic: {
       provider: status ? "openai" : "runtime",
       category: "unknown",
+      stage: error?.agentStage || null,
       status,
       code: code || null
     }
