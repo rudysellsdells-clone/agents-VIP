@@ -157,3 +157,64 @@ GET /health
 
 The health endpoint reports Node, OpenAI, Supabase, discovery/enrichment
 availability, and enabled industries.
+
+
+## Agent 3: Deterministic Marketing Opportunity Scoring
+
+Agent 3 makes no OpenAI or web-research call. It consumes the structured
+evidence already produced by Agents 1 and 2 and applies a fixed scoring formula.
+
+Score categories:
+
+| Category | Maximum |
+| --- | ---: |
+| ICP Fit | 20 |
+| Marketing Opportunity | 20 |
+| High-Value Services | 15 |
+| Growth Signals | 15 |
+| Competitive Opportunity | 10 |
+| Digital Weakness | 10 |
+| Decision-Maker Access | 10 |
+| **Total** | **100** |
+
+The score is deterministic and versioned as `marketing-opportunity-v1`.
+Identical normalized inputs produce the same category scores and total.
+
+Tiers:
+
+- `PRIORITY`: 80-100
+- `STRONG`: 65-79.9
+- `DEVELOP`: 50-64.9
+- `LOW`: below 50
+
+Public endpoint:
+
+```
+POST /api/public/scoring
+```
+
+Private endpoint:
+
+```
+POST /api/agents/scoring
+Authorization: Bearer <AGENT_API_TOKEN>
+```
+
+The UI exposes **Calculate Opportunity Score** after Agent 2 enrichment.
+
+Run migration 005:
+
+```
+supabase/migrations/005_add_opportunity_scoring.sql
+```
+
+Agent 3 stores:
+
+- `marketing_opportunity_score`
+- `score_tier`
+- `score_breakdown`
+- `score_version`
+- `score_next_action`
+- `scored_at`
+
+A scored prospect is moved to status `SCORED`.
