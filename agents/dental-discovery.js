@@ -33,51 +33,98 @@ const DentalDiscoveryOutput = z.object({
   prospects: z.array(DentalProspect).max(25)
 });
 
-const dentalDiscoveryAgent = new Agent({
-  name: "Dental Prospect Discovery",
-  model: process.env.DISCOVERY_MODEL || "gpt-5.4-mini",
-  instructions: `
-You identify strong B2B dental-practice candidates for a marketing agency.
+const researchModel =
+  process.env.DISCOVERY_RESEARCH_MODEL ||
+  process.env.DISCOVERY_MODEL ||
+  "gpt-5.6-luna";
 
-Your only job is discovery. Do not find personal email addresses, personal phone
-numbers, patient information, or sensitive personal information. Use public
-business information only.
+const formatModel =
+  process.env.DISCOVERY_FORMAT_MODEL ||
+  process.env.DISCOVERY_MODEL ||
+  "gpt-5.6-luna";
+
+const dentalResearchAgent = new Agent({
+  name: "Dental Prospect Web Researcher",
+  model: researchModel,
+  instructions: `
+You research B2B dental-practice candidates for a marketing agency.
+
+Use public business information only. Do not find personal email addresses,
+personal phone numbers, patient information, or sensitive personal information.
+
+Your job is to perform web research and produce a concise research dossier that
+a second agent can normalize into structured data.
 
 Prioritize:
 - independently owned practices and small local groups;
-- practices that appear to serve the requested market;
-- practices offering commercially attractive services such as dental implants,
-  full-mouth rehabilitation, cosmetic dentistry, clear aligners, or sedation;
-- practices with a real first-party website and enough public evidence to
-  support the result.
+- practices serving the requested market;
+- dental implants, full-mouth rehabilitation, cosmetic dentistry, clear
+  aligners, and sedation dentistry;
+- real first-party practice websites;
+- enough evidence to verify material facts.
 
 Deprioritize or exclude:
 - national dental chains;
 - obvious large DSOs or corporate groups;
-- directories, lead-generation pages, duplicate locations, and businesses that
-  cannot be verified from credible public sources;
+- directories and lead-generation pages;
+- duplicate locations;
 - practices outside the requested geography;
-- prospects for which you would need to guess material facts.
+- material facts that would require guessing.
 
-Research broadly with web search. Verify each candidate using first-party
-practice pages when possible and supplement them with credible public sources.
-Never invent a service, ownership structure, location, phone number, or URL.
+For every candidate, include:
+- practice name;
+- canonical first-party website URL;
+- city and state;
+- public business phone if clearly published;
+- likely practice type: independent, small local group, or unknown;
+- evidence supporting ownership/practice type when available;
+- which priority services are explicitly supported by evidence;
+- 1-6 reasons the practice is worth carrying forward into discovery;
+- source URLs paired with the specific fact each source supports.
 
-The discoveryConfidence field means confidence that the business is a valid,
-relevant discovery candidate. It is NOT a sales opportunity score.
-
-The independenceConfidence field means confidence, based only on public
-evidence, that the practice is independently owned or a small local group.
-
-Every prospect must include evidence URLs and concise facts that support why it
-was included. If evidence is weak, lower confidence or omit the prospect.
+Never invent a service, location, ownership structure, phone number, website,
+or source URL. If a fact is uncertain, say so explicitly. Return fewer
+candidates rather than weak or fabricated ones.
 `,
   tools: [
     webSearchTool({
       searchContextSize: "medium"
     })
   ],
-  outputType: DentalDiscoveryOutput
+  modelSettings: {
+    reasoning: { effort: "low" },
+    text: { verbosity: "low" }
+  }
+});
+
+const dentalFormatterAgent = new Agent({
+  name: "Dental Prospect Research Formatter",
+  model: formatModel,
+  instructions: `
+Convert the supplied dental-practice research dossier into the required
+structured discovery output.
+
+Do not do new web research and do not add facts that are absent from the
+dossier. Preserve source URLs exactly when they are valid public HTTP/HTTPS
+URLs. Omit weak candidates rather than inventing missing information.
+
+Rules:
+- discoveryConfidence is confidence that this is a valid, relevant discovery
+  candidate, not a final sales opportunity score;
+- independenceConfidence reflects only the evidence in the dossier;
+- service booleans may be true only when the dossier contains evidence for that
+  service;
+- phone may be null;
+- practiceType must be independent, small_group, or unknown;
+- every retained prospect must have at least one evidence item;
+- website must be the first-party practice website, not a directory or social
+  profile.
+`,
+  outputType: DentalDiscoveryOutput,
+  modelSettings: {
+    reasoning: { effort: "low" },
+    text: { verbosity: "low" }
+  }
 });
 
 const SERVICE_LABELS = {
@@ -155,39 +202,55 @@ export async function discoverDentalProspects({
     .filter(Boolean)
     .join(" and ");
 
-  const input = `
-Find up to ${maxResults} dental practices that are strong discovery candidates
-within approximately ${radiusMiles} miles of ${market}.
+  const researchPrompt = `
+Research up to ${maxResults} dental practices that are strong discovery
+candidates within approximately ${radiusMiles} miles of ${market}.
 
-This is the first stage of a B2B prospecting pipeline. Favor verified
-${practiceTypeText || "independent or small-group practices"}.
+Favor verified ${practiceTypeText || "independent or small-group practices"}.
 
-The user especially wants practices relevant to these service priorities:
+The user's service priorities are:
 ${priorityText}.
 
 Treat those service priorities as ranking preferences, not permission to invent
-services. A practice may still be useful if it has other strong high-value
-services, but rank matches higher when the evidence is comparable.
-
-Do not force the count: return fewer prospects if the public evidence is
-insufficient.
-
-For each practice, verify its real website, city/state, relevant services, and
-why it belongs in the discovery pool. Use multiple searches as needed and cite
-the public evidence in the structured output.
+services. Use multiple web searches as needed. Verify first-party websites,
+location, services, and evidence. Return fewer candidates if the public
+evidence is insufficient.
 `;
 
-  const result = await run(dentalDiscoveryAgent, input);
+  const researchResult = await run(dentalResearchAgent, researchPrompt);
 
-  if (!result.finalOutput) {
-    throw new Error("Dental discovery agent returned no structured output.");
+  if (!researchResult.finalOutput || typeof researchResult.finalOutput !== "string") {
+    throw new Error("Dental web research returned no usable research dossier.");
+  }
+
+  const formatPrompt = `
+Market: ${market}
+Radius miles: ${radiusMiles}
+Maximum prospects: ${maxResults}
+
+Normalize the following web-research dossier into the structured discovery
+schema. The output market must be "${market}" and radiusMiles must be
+${radiusMiles}. Keep no more than ${maxResults} prospects.
+
+--- BEGIN RESEARCH DOSSIER ---
+${researchResult.finalOutput}
+--- END RESEARCH DOSSIER ---
+`;
+
+  const formattedResult = await run(dentalFormatterAgent, formatPrompt);
+
+  if (!formattedResult.finalOutput) {
+    throw new Error("Dental formatter returned no structured output.");
   }
 
   return {
-    ...result.finalOutput,
+    ...formattedResult.finalOutput,
     market,
     radiusMiles,
-    prospects: dedupeProspects(result.finalOutput.prospects, maxResults)
+    prospects: dedupeProspects(
+      formattedResult.finalOutput.prospects,
+      maxResults
+    )
   };
 }
 
