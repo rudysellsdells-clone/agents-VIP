@@ -714,7 +714,7 @@ resultsList.addEventListener("click", async (event) => {
             (data.persistence?.diagnostic?.category
               ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
               : "") +
-            " Run migration 006 and retry.</div>'
+            " Run migration 006 and retry.</div>"
           : "");
 
       scoreTrigger.textContent = "Recalculate Score";
@@ -782,7 +782,7 @@ resultsList.addEventListener("click", async (event) => {
             (data.persistence?.diagnostic?.category
               ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
               : "") +
-            " Run migration 006 and retry.</div>'
+            " Run migration 006 and retry.</div>"
           : "");
       enrichTrigger.textContent = "Enriched";
       enrichTrigger.classList.add("enriched");
