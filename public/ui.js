@@ -136,6 +136,8 @@ async function pollQualificationJob(jobId) {
     if (["COMPLETED", "FAILED"].includes(String(data.job.status))) {
       stopQualificationPolling();
     }
+
+    return String(data.job.status || "");
   } catch (error) {
     stopQualificationPolling();
 
@@ -185,11 +187,15 @@ async function startQualificationForDiscovery(discovery) {
   qualificationJobPanel.innerHTML =
     '<div class="qualification-starting"><div class="loader"></div><p>Qualification job queued. Agents are beginning work…</p></div>';
 
-  await pollQualificationJob(currentQualificationJobId);
+  const initialStatus = await pollQualificationJob(
+    currentQualificationJobId
+  );
 
-  qualificationPollTimer = setInterval(() => {
-    pollQualificationJob(currentQualificationJobId);
-  }, 3000);
+  if (!["COMPLETED", "FAILED"].includes(initialStatus)) {
+    qualificationPollTimer = setInterval(() => {
+      pollQualificationJob(currentQualificationJobId);
+    }, 3000);
+  }
 }
 
 function currentIndustry() {
