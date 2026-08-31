@@ -1,4 +1,5 @@
 alter table public.prospects
+  add column if not exists email text,
   add column if not exists business_summary text,
   add column if not exists service_area text,
   add column if not exists company_size_signals jsonb not null default '[]'::jsonb,
@@ -27,6 +28,10 @@ begin
   end if;
 end
 $$;
+
+create index if not exists prospects_email_idx
+  on public.prospects (email)
+  where email is not null;
 
 create index if not exists prospects_enrichment_confidence_idx
   on public.prospects (enrichment_confidence desc);
