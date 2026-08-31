@@ -158,7 +158,7 @@ begin
       );
   end if;
 end
-$;
+$$;
 
 create index if not exists prospects_status_idx
   on public.prospects (status);
