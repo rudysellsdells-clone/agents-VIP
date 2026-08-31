@@ -222,6 +222,90 @@ function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
   };
 }
 
+
+function classifyAgentError(error) {
+  const status = Number(error?.status || error?.statusCode || 0) || null;
+  const code = String(error?.code || error?.error?.code || "").toLowerCase();
+  const type = String(error?.type || error?.error?.type || "").toLowerCase();
+  const message = String(error?.message || error?.error?.message || "");
+  const haystack = `${code} ${type} ${message}`.toLowerCase();
+
+  if (
+    haystack.includes("insufficient_quota") ||
+    haystack.includes("billing") ||
+    haystack.includes("credit balance")
+  ) {
+    return {
+      statusCode: 503,
+      publicMessage:
+        "OpenAI API billing or quota is not available for this project. Check the API Platform billing/usage settings for the key used by this app.",
+      diagnostic: { provider: "openai", category: "quota", status, code: code || null }
+    };
+  }
+
+  if (status === 429 || haystack.includes("rate limit")) {
+    return {
+      statusCode: 503,
+      publicMessage:
+        "The OpenAI API is currently rate-limiting this agent. Please retry shortly.",
+      diagnostic: { provider: "openai", category: "rate_limit", status, code: code || null }
+    };
+  }
+
+  if (status === 401 || haystack.includes("invalid api key") || haystack.includes("incorrect api key")) {
+    return {
+      statusCode: 503,
+      publicMessage:
+        "The OpenAI API key configured on the server was rejected. Check OPENAI_API_KEY in the cPanel app environment.",
+      diagnostic: { provider: "openai", category: "authentication", status, code: code || null }
+    };
+  }
+
+  if (status === 403 || haystack.includes("permission")) {
+    return {
+      statusCode: 503,
+      publicMessage:
+        "The OpenAI project does not currently have permission to run this agent or one of its tools.",
+      diagnostic: { provider: "openai", category: "permission", status, code: code || null }
+    };
+  }
+
+  if (
+    haystack.includes("timeout") ||
+    haystack.includes("timed out") ||
+    haystack.includes("etimedout") ||
+    haystack.includes("econnreset")
+  ) {
+    return {
+      statusCode: 504,
+      publicMessage:
+        "The research request took too long to finish. This may be a server or proxy timeout rather than a search-quality problem.",
+      diagnostic: { provider: "runtime", category: "timeout", status, code: code || null }
+    };
+  }
+
+  if (status === 400 || haystack.includes("schema") || haystack.includes("structured output")) {
+    return {
+      statusCode: 500,
+      publicMessage:
+        "The agent request reached OpenAI but its tool or structured-output configuration was rejected.",
+      diagnostic: { provider: "openai", category: "request_configuration", status, code: code || null }
+    };
+  }
+
+  return {
+    statusCode: 500,
+    publicMessage:
+      "The prospecting agent could not complete this search. Check the cPanel App Logs for the server-side error.",
+    diagnostic: {
+      provider: status ? "openai" : "runtime",
+      category: "unknown",
+      status,
+      code: code || null
+    }
+  };
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -363,12 +447,23 @@ async function handlePublicDentalDiscovery(req, res) {
       error.message.startsWith("Radius ") ||
       error.message.startsWith("Number ");
 
-    sendJson(res, validationError ? 400 : 500, {
+    if (validationError) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "dental-discovery-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+
+    sendJson(res, classified.statusCode, {
       status: "error",
       agent: "dental-discovery-v1",
-      error: validationError
-        ? error.message
-        : "The prospecting agent could not complete this search. Please try again."
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
     });
   }
 }
