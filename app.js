@@ -16,7 +16,7 @@ const publicRateLimits = new Map();
 const PUBLIC_WINDOW_MS = 60 * 60 * 1000;
 const PUBLIC_MAX_SEARCHES = Math.max(
   1,
-  Number(process.env.PUBLIC_SEARCHES_PER_HOUR || 3)
+  Number(process.env.PUBLIC_SEARCHES_PER_HOUR || 20)
 );
 
 const STATIC_FILES = new Map([
@@ -103,8 +103,17 @@ function isAuthorized(req) {
 }
 
 function getClientIp(req) {
-  const forwarded = req.headers["x-forwarded-for"];
+  const cloudflare = req.headers["cf-connecting-ip"];
+  if (typeof cloudflare === "string" && cloudflare.trim()) {
+    return cloudflare.trim();
+  }
 
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.trim()) {
+    return realIp.trim();
+  }
+
+  const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
     return forwarded.split(",")[0].trim();
   }
@@ -304,26 +313,29 @@ async function handlePrivateDentalDiscovery(req, res) {
 }
 
 async function handlePublicDentalDiscovery(req, res) {
-  const limit = consumePublicRateLimit(req);
-
-  if (!limit.allowed) {
-    const retryAfter = Math.max(1, Math.ceil((limit.resetAt - Date.now()) / 1000));
-
-    sendJson(
-      res,
-      429,
-      {
-        status: "error",
-        error: "Public search limit reached. Please try again later."
-      },
-      { "Retry-After": String(retryAfter) }
-    );
-    return;
-  }
-
   try {
     const body = await readJsonBody(req);
     const payload = validateDiscoveryRequest(body, { publicRequest: true });
+    const limit = consumePublicRateLimit(req);
+
+    if (!limit.allowed) {
+      const retryAfter = Math.max(
+        1,
+        Math.ceil((limit.resetAt - Date.now()) / 1000)
+      );
+
+      sendJson(
+        res,
+        429,
+        {
+          status: "error",
+          error: "Public search limit reached. Please try again later."
+        },
+        { "Retry-After": String(retryAfter) }
+      );
+      return;
+    }
+
     const { discovery, persistence } = await runDiscovery(payload);
 
     sendJson(
