@@ -504,7 +504,8 @@ async function runEnrichment(payload) {
       ok: false,
       saved: 0,
       error:
-        "Enrichment completed but could not be saved to the prospect database."
+        "Enrichment completed but could not be saved to the prospect database.",
+      diagnostic: classifyPersistenceError(error)
     };
   }
 
@@ -832,7 +833,8 @@ async function runScoring(payload) {
       ok: false,
       saved: 0,
       error:
-        "Scoring completed but could not be saved to the prospect database."
+        "Scoring completed but could not be saved to the prospect database.",
+      diagnostic: classifyPersistenceError(error)
     };
   }
 
@@ -913,6 +915,48 @@ async function checkOpenAI() {
   }
 }
 
+
+function classifyPersistenceError(error) {
+  const message = String(error?.message || "");
+  const lower = message.toLowerCase();
+
+  let category = "unknown";
+
+  if (
+    lower.includes("(401)") ||
+    lower.includes("invalid jwt") ||
+    lower.includes("unauthorized")
+  ) {
+    category = "authentication";
+  } else if (
+    lower.includes("(403)") ||
+    lower.includes("permission denied") ||
+    lower.includes("row-level security") ||
+    lower.includes("rls")
+  ) {
+    category = "permission";
+  } else if (
+    lower.includes("could not find the") ||
+    lower.includes("column") ||
+    lower.includes("schema cache") ||
+    lower.includes("pgrst204") ||
+    lower.includes("pgrst205")
+  ) {
+    category = "schema";
+  } else if (
+    lower.includes("did not match an existing prospect row")
+  ) {
+    category = "row_match";
+  }
+
+  const statusMatch = message.match(/\((\d{3})\)/);
+
+  return {
+    category,
+    status: statusMatch ? Number(statusMatch[1]) : null
+  };
+}
+
 async function runDiscovery(payload) {
   const discovery = await discoverProspects(payload);
 
@@ -930,7 +974,8 @@ async function runDiscovery(payload) {
       ok: false,
       saved: 0,
       error:
-        "Results were found but could not be saved to the prospect database."
+        "Results were found but could not be saved to the prospect database.",
+      diagnostic: classifyPersistenceError(error)
     };
   }
 
