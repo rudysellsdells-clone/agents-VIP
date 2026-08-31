@@ -377,7 +377,16 @@ async function handlePrivateDentalDiscovery(req, res) {
     sendJson(res, 200, {
       status: persistence.ok ? "ok" : "partial",
       agent: "dental-discovery-v1",
-      model: process.env.DISCOVERY_MODEL || "gpt-5.4-mini",
+      models: {
+        research:
+          process.env.DISCOVERY_RESEARCH_MODEL ||
+          process.env.DISCOVERY_MODEL ||
+          "gpt-5.6-luna",
+        formatter:
+          process.env.DISCOVERY_FORMAT_MODEL ||
+          process.env.DISCOVERY_MODEL ||
+          "gpt-5.6-luna"
+      },
       persistence,
       discovery
     });
