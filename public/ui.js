@@ -17,11 +17,180 @@ const loadingMessage = document.querySelector("#loading-message");
 const persistenceNote = document.querySelector("#persistence-note");
 const exportButton = document.querySelector("#export-csv");
 const tryAgainButton = document.querySelector("#try-again");
+const autoQualifyInput = document.querySelector("#auto-qualify");
+const autoDraftPriorityInput = document.querySelector("#auto-draft-priority");
+const qualificationJobPanel = document.querySelector("#qualification-job");
 
 let industries = [];
 let lastProspects = [];
 let lastDiscovery = null;
 let loadingTimer;
+let qualificationPollTimer;
+let currentQualificationJobId = null;
+
+
+function stopQualificationPolling() {
+  if (qualificationPollTimer) {
+    clearInterval(qualificationPollTimer);
+    qualificationPollTimer = null;
+  }
+}
+
+function stageLabel(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function renderQualificationJob(job) {
+  if (!qualificationJobPanel || !job) return;
+
+  const counts = job.counts || {};
+  const total = Number(job.total_items || job.items?.length || 0);
+  const complete =
+    Number(counts.completed || 0) +
+    Number(counts.stopped || 0) +
+    Number(counts.failed || 0);
+
+  const percent = total > 0
+    ? Math.round((complete / total) * 100)
+    : 0;
+
+  const items = (job.items || []).map((item) => {
+    const score =
+      item.scoring?.marketingOpportunityScore ??
+      item.scoring?.marketing_opportunity_score ??
+      null;
+
+    const contact =
+      item.contact_resolution?.primaryDecisionMaker?.name ||
+      item.contact_resolution?.primary_decision_maker?.name ||
+      "";
+
+    return (
+      '<article class="qualification-item">' +
+        '<div>' +
+          '<strong>' + escapeHtml(item.company_name || "Prospect") + '</strong>' +
+          '<small>' + escapeHtml(stageLabel(item.stage)) + '</small>' +
+        '</div>' +
+        '<div class="qualification-item-meta">' +
+          (score !== null
+            ? '<span>Score ' + Number(score) + '</span>'
+            : '') +
+          (contact
+            ? '<span>' + escapeHtml(contact) + '</span>'
+            : '') +
+          (item.status === "FAILED"
+            ? '<span class="qualification-failed">Failed</span>'
+            : '') +
+        '</div>' +
+      '</article>'
+    );
+  }).join("");
+
+  qualificationJobPanel.hidden = false;
+  qualificationJobPanel.innerHTML =
+    '<div class="qualification-head">' +
+      '<div>' +
+        '<p class="eyebrow">Automated qualification</p>' +
+        '<h3>Agents 2 → 3 → 4' +
+          (job.auto_draft_priority ? ' → 5' : '') +
+        '</h3>' +
+        '<p>' +
+          complete +
+          ' of ' +
+          total +
+          ' prospects finished • ' +
+          escapeHtml(stageLabel(job.status)) +
+        '</p>' +
+      '</div>' +
+      '<strong class="qualification-percent">' + percent + '%</strong>' +
+    '</div>' +
+    '<div class="qualification-progress"><span style="width:' +
+      Math.max(0, Math.min(100, percent)) +
+      '%"></span></div>' +
+    '<div class="qualification-counts">' +
+      '<span>Enriched <strong>' + Number(counts.enriched || 0) + '</strong></span>' +
+      '<span>Scored <strong>' + Number(counts.scored || 0) + '</strong></span>' +
+      '<span>Contact resolved <strong>' + Number(counts.contactResolved || 0) + '</strong></span>' +
+      '<span>Stopped <strong>' + Number(counts.stopped || 0) + '</strong></span>' +
+      '<span>Failed <strong>' + Number(counts.failed || 0) + '</strong></span>' +
+    '</div>' +
+    '<div class="qualification-items">' + items + '</div>';
+}
+
+async function pollQualificationJob(jobId) {
+  try {
+    const response = await fetch(
+      "/api/public/qualification-jobs/" + encodeURIComponent(jobId)
+    );
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || !data.job) {
+      throw new Error(data.error || "Qualification status could not be loaded.");
+    }
+
+    renderQualificationJob(data.job);
+
+    if (["COMPLETED", "FAILED"].includes(String(data.job.status))) {
+      stopQualificationPolling();
+    }
+  } catch (error) {
+    stopQualificationPolling();
+
+    if (qualificationJobPanel) {
+      qualificationJobPanel.hidden = false;
+      qualificationJobPanel.innerHTML =
+        '<div class="persistence-note">' +
+        escapeHtml(error.message) +
+        '</div>';
+    }
+  }
+}
+
+async function startQualificationForDiscovery(discovery) {
+  if (!autoQualifyInput?.checked || !(discovery?.prospects || []).length) {
+    if (qualificationJobPanel) qualificationJobPanel.hidden = true;
+    return;
+  }
+
+  stopQualificationPolling();
+
+  qualificationJobPanel.hidden = false;
+  qualificationJobPanel.innerHTML =
+    '<div class="qualification-starting"><div class="loader"></div><p>Queueing automated qualification…</p></div>';
+
+  const response = await fetch("/api/public/qualification-jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      industry: discovery.industry,
+      prospects: discovery.prospects,
+      autoDraftPriority: Boolean(autoDraftPriorityInput?.checked),
+      draftScoreThreshold: 80
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.job?.id) {
+    throw new Error(
+      data.error || "Automated qualification could not be started."
+    );
+  }
+
+  currentQualificationJobId = data.job.id;
+
+  qualificationJobPanel.innerHTML =
+    '<div class="qualification-starting"><div class="loader"></div><p>Qualification job queued. Agents are beginning work…</p></div>';
+
+  await pollQualificationJob(currentQualificationJobId);
+
+  qualificationPollTimer = setInterval(() => {
+    pollQualificationJob(currentQualificationJobId);
+  }, 3000);
+}
 
 function currentIndustry() {
   return industries.find((item) => item.id === industrySelect.value) || null;
@@ -992,6 +1161,18 @@ form.addEventListener("submit", async (event) => {
     }
 
     showResults(data);
+
+    if (autoQualifyInput?.checked) {
+      try {
+        await startQualificationForDiscovery(data.discovery);
+      } catch (qualificationError) {
+        qualificationJobPanel.hidden = false;
+        qualificationJobPanel.innerHTML =
+          '<div class="persistence-note">' +
+          escapeHtml(qualificationError.message) +
+          '</div>';
+      }
+    }
   } catch (error) {
     showError(error.message);
   } finally {
@@ -1351,6 +1532,9 @@ resultsList.addEventListener("click", async (event) => {
 });
 
 tryAgainButton.addEventListener("click", () => {
+  stopQualificationPolling();
+  currentQualificationJobId = null;
+  if (qualificationJobPanel) qualificationJobPanel.hidden = true;
   setView("empty");
   document.querySelector("#market").focus();
 });
