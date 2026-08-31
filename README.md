@@ -1,11 +1,11 @@
 # VIP Prospect Intelligence
 
-Node.js B2B prospect discovery service for Web Search Professionals and
-Marketing VIP.
+Node.js B2B prospect discovery and enrichment service for Web Search
+Professionals and Marketing VIP.
 
-## Universal Prospect Discovery
+## Agent 1: Universal Prospect Discovery
 
-Agent 1 now uses one discovery engine with industry-specific playbooks.
+Agent 1 uses one discovery engine with industry-specific playbooks.
 
 Initial verticals:
 
@@ -17,7 +17,7 @@ Initial verticals:
 Each playbook defines the business types, capabilities, specialties, and
 research signals that matter for that vertical.
 
-The discovery workflow is intentionally evidence-first:
+The discovery workflow is evidence-first:
 
 1. A web-research agent searches public business information.
 2. A formatter converts the research dossier into plain JSON.
@@ -25,44 +25,63 @@ The discovery workflow is intentionally evidence-first:
 4. Duplicate websites are removed.
 5. Results are shown in the UI and upserted into Supabase.
 
-When a business publicly publishes a contact email, the discovery output stores
-that exact address. The agent must not infer or construct email addresses from
-names, domains, or patterns.
+When a business publicly publishes a contact email, discovery stores that exact
+address. The agent must not infer or construct email addresses from names,
+domains, or patterns.
 
 Discovery confidence is not a final sales opportunity score.
+
+## Agent 2: Prospect Enrichment
+
+Agent 2 enriches one already-discovered company at a time.
+
+It researches:
+
+- Business summary, specialties, service area, and company-size signals.
+- Verified services/capabilities.
+- Public professional decision-makers and leadership.
+- Verified public business contact paths.
+- Growth and investment signals.
+- Website/UX, SEO/content, conversion, positioning, reputation, social,
+  paid-visibility, AI-discovery, and competitive marketing observations.
+- An evidence-based opportunity summary.
+- Enrichment confidence.
+
+Agent 2 does **not** calculate the final Marketing Opportunity Score. That is
+reserved for Agent 3.
+
+Decision-maker information must be relevant public professional information.
+Private contact information and sensitive personal information are prohibited.
+Email addresses may be stored only when explicitly published for business
+contact; guessed or pattern-generated addresses are prohibited.
 
 ## Public UI
 
 The root URL serves the multi-industry Prospect Intelligence interface.
 
-The UI dynamically loads its industry filters from:
+Industry configuration:
 
 ```
 GET /api/industries
 ```
 
-Public searches use:
+Discovery:
 
 ```
 POST /api/public/discovery
 ```
 
-Example request:
+Agent 2 enrichment:
 
-```json
-{
-  "industry": "construction",
-  "market": "Milwaukee, WI",
-  "radiusMiles": 25,
-  "maxResults": 5,
-  "priorities": ["roofing", "hvac", "remodeling"],
-  "companyTypes": ["independent", "small_group"]
-}
+```
+POST /api/public/enrichment
 ```
 
-Public requests are limited to 10 results, a 100-mile radius, and an in-memory
-per-IP hourly rate limit. Set `PUBLIC_SEARCHES_PER_HOUR` to override the
-default of 20.
+Each discovery result card includes an **Enrich Prospect** action. Agent 2
+results open inline beneath the prospect.
+
+Public research calls share the in-memory per-IP rate limit. Set
+`PUBLIC_SEARCHES_PER_HOUR` to override the default of 20.
 
 ## Private API
 
@@ -70,10 +89,12 @@ Authenticated integrations can use:
 
 ```
 POST /api/agents/discovery
+POST /api/agents/enrichment
 Authorization: Bearer <AGENT_API_TOKEN>
 ```
 
-The previous dental endpoints remain available as compatibility aliases:
+The previous dental discovery endpoints remain available as compatibility
+aliases:
 
 ```
 POST /api/public/dental-discovery
@@ -82,21 +103,34 @@ POST /api/agents/dental-discovery
 
 ## Supabase
 
-Run both migrations in order:
+Run migrations in order:
 
 ```
 supabase/migrations/001_create_prospects.sql
 supabase/migrations/002_generalize_prospects.sql
+supabase/migrations/003_add_business_email.sql
+supabase/migrations/004_add_prospect_enrichment.sql
 ```
 
-Migration 002 adds:
+Migration 004 is defensive and also creates the email column/index if migration
+003 has not yet been applied.
 
-- `subindustry`
-- `company_type`
-- `company_type_confidence`
-- `capabilities`
+Agent 2 adds:
 
-It also backfills existing dental records from the original dental-era fields.
+- `business_summary`
+- `service_area`
+- `company_size_signals`
+- `decision_makers`
+- `contact_paths`
+- `growth_signals`
+- `marketing_signals`
+- `opportunity_summary`
+- `enrichment_confidence`
+- `enrichment_agent`
+- `enriched_at`
+
+Enrichment updates the same prospect record by the existing
+`(industry, website)` unique key and sets status to `ENRICHED`.
 
 ## Required environment variables
 
@@ -111,6 +145,8 @@ Optional:
 - `DISCOVERY_MODEL`
 - `DISCOVERY_RESEARCH_MODEL`
 - `DISCOVERY_FORMAT_MODEL`
+- `ENRICHMENT_RESEARCH_MODEL`
+- `ENRICHMENT_FORMAT_MODEL`
 - `PUBLIC_SEARCHES_PER_HOUR`
 
 ## Health
@@ -119,17 +155,5 @@ Optional:
 GET /health
 ```
 
-The health endpoint reports Node, OpenAI, Supabase, public/private discovery
-availability, and the enabled industries.
-
-
-## Business email
-
-Run migration 003 to add verified public business email storage:
-
-```
-supabase/migrations/003_add_business_email.sql
-```
-
-The email field is nullable. Only addresses explicitly published for business
-contact should be stored; guessed or pattern-derived addresses are prohibited.
+The health endpoint reports Node, OpenAI, Supabase, discovery/enrichment
+availability, and enabled industries.
