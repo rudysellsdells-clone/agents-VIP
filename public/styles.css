@@ -907,3 +907,167 @@ footer {
     width: fit-content;
   }
 }
+
+
+.enrichment-actions {
+  margin-top: 16px;
+}
+
+.score-button {
+  border-color: rgba(213, 161, 59, .4);
+  background: var(--gold-soft);
+  color: #7e5b18;
+}
+
+.score-button.scored {
+  border-color: rgba(22, 131, 95, .28);
+  background: rgba(22, 131, 95, .09);
+  color: var(--success);
+}
+
+.prospect-scoring {
+  margin-top: 16px;
+}
+
+.score-loading {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.scoring-panel {
+  border: 1px solid #ead9b4;
+  border-radius: 16px;
+  padding: 18px;
+  background: linear-gradient(180deg, #fffaf0 0%, #ffffff 100%);
+}
+
+.scoring-hero {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+}
+
+.opportunity-score {
+  width: 132px;
+  min-height: 118px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  border-radius: 18px;
+  border: 1px solid #ead19a;
+  background: white;
+  text-align: center;
+}
+
+.opportunity-score strong {
+  display: block;
+  color: #8d6416;
+  font-size: 42px;
+  line-height: .95;
+  letter-spacing: -.05em;
+}
+
+.opportunity-score small {
+  max-width: 100px;
+  margin-top: 8px;
+  color: #8a7449;
+  font-size: 9px;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.score-summary h4 {
+  margin: 0;
+  font-size: 25px;
+  letter-spacing: -.03em;
+}
+
+.score-summary p:not(.eyebrow) {
+  margin: 7px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.score-summary small {
+  display: block;
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.score-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.score-category {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: white;
+}
+
+.score-category-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.score-category-head strong {
+  font-size: 11px;
+}
+
+.score-category-head span {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.score-bar {
+  height: 6px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #edf1f5;
+}
+
+.score-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  color: #d5a13b;
+}
+
+.score-reasons {
+  margin: 9px 0 0;
+  padding-left: 16px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.score-reasons li + li {
+  margin-top: 3px;
+}
+
+@media (max-width: 700px) {
+  .scoring-hero,
+  .score-breakdown {
+    grid-template-columns: 1fr;
+  }
+
+  .opportunity-score {
+    width: 100%;
+  }
+}
