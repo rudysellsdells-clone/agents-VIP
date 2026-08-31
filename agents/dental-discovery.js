@@ -217,7 +217,14 @@ location, services, and evidence. Return fewer candidates if the public
 evidence is insufficient.
 `;
 
-  const researchResult = await run(dentalResearchAgent, researchPrompt);
+  let researchResult;
+
+  try {
+    researchResult = await run(dentalResearchAgent, researchPrompt);
+  } catch (error) {
+    error.agentStage = "web_research";
+    throw error;
+  }
 
   if (!researchResult.finalOutput || typeof researchResult.finalOutput !== "string") {
     throw new Error("Dental web research returned no usable research dossier.");
@@ -237,7 +244,14 @@ ${researchResult.finalOutput}
 --- END RESEARCH DOSSIER ---
 `;
 
-  const formattedResult = await run(dentalFormatterAgent, formatPrompt);
+  let formattedResult;
+
+  try {
+    formattedResult = await run(dentalFormatterAgent, formatPrompt);
+  } catch (error) {
+    error.agentStage = "structured_formatter";
+    throw error;
+  }
 
   if (!formattedResult.finalOutput) {
     throw new Error("Dental formatter returned no structured output.");
