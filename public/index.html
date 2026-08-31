@@ -122,6 +122,24 @@
             <div id="company-type-grid" class="check-grid"></div>
           </fieldset>
 
+          <fieldset class="automation-options">
+            <legend>Qualification automation</legend>
+            <label class="automation-check">
+              <input id="auto-qualify" type="checkbox" checked>
+              <span>
+                <strong>Auto Qualify</strong>
+                <small>Automatically run enrichment → scoring → contact resolution.</small>
+              </span>
+            </label>
+            <label class="automation-check">
+              <input id="auto-draft-priority" type="checkbox">
+              <span>
+                <strong>Draft Priority prospects</strong>
+                <small>Also create Agent 5 drafts when the score reaches 80+.</small>
+              </span>
+            </label>
+          </fieldset>
+
           <button id="search-button" class="primary-button" type="submit">
             <span>Find prospects</span>
             <span aria-hidden="true">→</span>
@@ -173,6 +191,8 @@
               Export CSV
             </button>
           </div>
+
+          <div id="qualification-job" class="qualification-job" hidden></div>
 
           <div id="results-list" class="results-list"></div>
 
