@@ -1,6 +1,6 @@
 {
   "name": "prospect-agent-server",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Multi-industry AI prospect intelligence server for Marketing VIP",
   "type": "module",
   "main": "app.js",
