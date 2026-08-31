@@ -371,3 +371,47 @@ Optional Agent 5 environment setting:
 
 Sending, CRM creation, or automated sequence enrollment is intentionally
 reserved for a later approval/publishing stage.
+
+
+### Persuasion framework selection
+
+Agent 5 now selects an explicit persuasion framework from the verified research
+rather than relying on generic personalization.
+
+Supported frameworks include:
+
+- FOMO
+- Loss aversion
+- Opportunity cost
+- Social proof
+- Specificity
+- Contrast
+- Authority
+- Reciprocity
+
+The selected framework is stored inside the outreach package with:
+
+- Primary framework.
+- Optional secondary framework.
+- Why the framework fits this prospect.
+- Evidence basis from Agents 1-4.
+- An application rule describing how the concept should shape the drafts.
+
+FOMO is never treated as a default. It may be used only when the supplied
+research supports a genuine timing, competitive, growth, or missed-opportunity
+argument. Agent 5 is instructed never to invent scarcity, deadlines, competitor
+activity, customer behavior, or urgency.
+
+For many B2B prospects, specificity plus opportunity cost may be more credible
+than overt urgency.
+
+### Qualification job cap
+
+The upcoming automated Agents 2-4 qualification pipeline is capped at 100
+records per job for the current phase.
+
+`QUALIFICATION_JOB_MAX_RECORDS=100`
+
+The application itself enforces an upper ceiling of 100 even if a larger
+environment value is supplied. This limit can be revisited after real usage,
+cost, retry, and quality telemetry has been collected.
