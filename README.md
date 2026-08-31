@@ -25,6 +25,10 @@ The discovery workflow is intentionally evidence-first:
 4. Duplicate websites are removed.
 5. Results are shown in the UI and upserted into Supabase.
 
+When a business publicly publishes a contact email, the discovery output stores
+that exact address. The agent must not infer or construct email addresses from
+names, domains, or patterns.
+
 Discovery confidence is not a final sales opportunity score.
 
 ## Public UI
@@ -117,3 +121,15 @@ GET /health
 
 The health endpoint reports Node, OpenAI, Supabase, public/private discovery
 availability, and the enabled industries.
+
+
+## Business email
+
+Run migration 003 to add verified public business email storage:
+
+```
+supabase/migrations/003_add_business_email.sql
+```
+
+The email field is nullable. Only addresses explicitly published for business
+contact should be stored; guessed or pattern-derived addresses are prohibited.
