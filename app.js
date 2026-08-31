@@ -32,11 +32,20 @@ import {
 const port = process.env.PORT || 3000;
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const publicRateLimits = new Map();
+const publicQualificationRateLimits = new Map();
 
 const PUBLIC_WINDOW_MS = 60 * 60 * 1000;
 const PUBLIC_MAX_SEARCHES = Math.max(
   1,
   Number(process.env.PUBLIC_SEARCHES_PER_HOUR || 20)
+);
+
+const PUBLIC_MAX_QUALIFICATION_JOBS = Math.max(
+  1,
+  Math.min(
+    10,
+    Number(process.env.PUBLIC_QUALIFICATION_JOBS_PER_HOUR || 3)
+  )
 );
 
 const CONTACT_RESOLUTION_MIN_SCORE = Math.max(
@@ -195,6 +204,47 @@ function consumePublicRateLimit(req) {
   return {
     allowed: true,
     remaining: Math.max(0, PUBLIC_MAX_SEARCHES - current.count),
+    resetAt: current.resetAt
+  };
+}
+
+function consumePublicQualificationLimit(req) {
+  const now = Date.now();
+  const ip = getClientIp(req);
+  const current = publicQualificationRateLimits.get(ip);
+
+  if (!current || now >= current.resetAt) {
+    const next = {
+      count: 1,
+      resetAt: now + PUBLIC_WINDOW_MS
+    };
+
+    publicQualificationRateLimits.set(ip, next);
+
+    return {
+      allowed: true,
+      remaining: PUBLIC_MAX_QUALIFICATION_JOBS - 1,
+      resetAt: next.resetAt
+    };
+  }
+
+  if (current.count >= PUBLIC_MAX_QUALIFICATION_JOBS) {
+    return {
+      allowed: false,
+      remaining: 0,
+      resetAt: current.resetAt
+    };
+  }
+
+  current.count += 1;
+  publicQualificationRateLimits.set(ip, current);
+
+  return {
+    allowed: true,
+    remaining: Math.max(
+      0,
+      PUBLIC_MAX_QUALIFICATION_JOBS - current.count
+    ),
     resetAt: current.resetAt
   };
 }
@@ -375,6 +425,29 @@ async function handleCreateQualificationJob(req, res, requireAuth) {
     const payload = validateQualificationJobRequest(body, {
       publicRequest: !requireAuth
     });
+
+    if (!requireAuth) {
+      const limit = consumePublicQualificationLimit(req);
+
+      if (!limit.allowed) {
+        const retryAfter = Math.max(
+          1,
+          Math.ceil((limit.resetAt - Date.now()) / 1000)
+        );
+
+        sendJson(
+          res,
+          429,
+          {
+            status: "error",
+            error:
+              "Public automated qualification limit reached. Please try again later."
+          },
+          { "Retry-After": String(retryAfter) }
+        );
+        return;
+      }
+    }
 
     const job = await createQualificationJob(payload);
     startQualificationJob(job.id);
@@ -1838,6 +1911,7 @@ const server = http.createServer(async (req, res) => {
         stages: ["enrichment", "scoring", "contact_resolution"],
         optionalPriorityDrafting: true,
         publicMaxRecordsPerJob: 10,
+        publicJobsPerHour: PUBLIC_MAX_QUALIFICATION_JOBS,
         privateMaxRecordsPerJob: QUALIFICATION_JOB_MAX_RECORDS,
         worker: getQualificationWorkerState()
       }
