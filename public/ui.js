@@ -201,6 +201,11 @@ function renderProspect(prospect, index, industry) {
               website +
               '" target="_blank" rel="noopener noreferrer">Website ↗</a>'
             : "") +
+          (email
+            ? '<a class="details-button" href="mailto:' +
+              escapeHtml(email) +
+              '">Email</a>'
+            : "") +
           '<button class="details-button" type="button" data-details="' +
             index +
             '" aria-expanded="false">Evidence</button>' +
