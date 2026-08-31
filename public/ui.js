@@ -282,6 +282,12 @@ function renderSignalItems(items = [], kind = "growth") {
 
 
 
+function persuasionLabel(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function renderDraftCard(title, text, index, key) {
   return (
     '<article class="outreach-draft-card">' +
@@ -344,6 +350,34 @@ function renderOutreachPackage(outreach, index) {
 
       '<div class="outreach-notice">' +
         '<strong>Draft only.</strong> Nothing is sent from this screen.' +
+      '</div>' +
+
+      '<div class="persuasion-framework-card">' +
+        '<div>' +
+          '<p class="eyebrow">Persuasion framework</p>' +
+          '<h5>' +
+            escapeHtml(
+              persuasionLabel(outreach.persuasionFramework?.primary)
+            ) +
+            (outreach.persuasionFramework?.secondary
+              ? ' + ' +
+                escapeHtml(
+                  persuasionLabel(outreach.persuasionFramework.secondary)
+                )
+              : '') +
+          '</h5>' +
+          '<p>' +
+            escapeHtml(outreach.persuasionFramework?.whyItFits || '') +
+          '</p>' +
+          '<small>' +
+            escapeHtml(outreach.persuasionFramework?.applicationRule || '') +
+          '</small>' +
+        '</div>' +
+        '<ul>' +
+          (outreach.persuasionFramework?.evidenceBasis || [])
+            .map((item) => '<li>' + escapeHtml(item) + '</li>')
+            .join('') +
+        '</ul>' +
       '</div>' +
 
       '<div class="outreach-drafts">' +
