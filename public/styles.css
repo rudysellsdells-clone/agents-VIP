@@ -706,3 +706,204 @@ footer {
 
   footer { gap: 16px; }
 }
+
+
+.prospect-enrichment {
+  padding: 0 20px 20px 116px;
+}
+
+.enrichment-loading {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.enrichment-loading .loader {
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  border-width: 3px;
+}
+
+.enrich-button {
+  border-color: rgba(23, 94, 168, .3);
+  background: var(--blue-light);
+  color: var(--blue);
+}
+
+.enrich-button.enriched {
+  border-color: rgba(22, 131, 95, .28);
+  background: rgba(22, 131, 95, .09);
+  color: var(--success);
+}
+
+.enrichment-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.enrichment-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  align-items: start;
+}
+
+.enrichment-heading h4 {
+  margin: 0;
+  max-width: 650px;
+  font-size: 18px;
+  line-height: 1.35;
+  letter-spacing: -.02em;
+}
+
+.enrichment-score {
+  min-width: 104px;
+  border: 1px solid #d9e9e2;
+  border-radius: 14px;
+  padding: 11px 13px;
+  background: #f4fbf8;
+  text-align: center;
+}
+
+.enrichment-score strong {
+  display: block;
+  color: var(--success);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.enrichment-score small {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+.enrichment-summary {
+  margin: 14px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.enrichment-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.enrichment-grid > section {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 15px;
+  background: var(--surface-soft);
+}
+
+.enrichment-grid h5 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.decision-makers {
+  display: grid;
+  gap: 8px;
+}
+
+.person-card {
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 11px;
+  background: white;
+}
+
+.person-card strong,
+.person-card span,
+.person-card small {
+  display: block;
+}
+
+.person-card strong {
+  font-size: 13px;
+}
+
+.person-card span {
+  margin-top: 2px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.person-card small {
+  margin-top: 6px;
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.person-links {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.person-links a,
+.enrichment-list a {
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.enrichment-list,
+.signal-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.enrichment-list li + li,
+.signal-list li + li {
+  margin-top: 8px;
+}
+
+.signal-list strong {
+  color: var(--ink);
+  text-transform: capitalize;
+}
+
+.signal-list p {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 800px) {
+  .prospect-enrichment {
+    padding-left: 20px;
+  }
+
+  .enrichment-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .enrichment-heading {
+    display: grid;
+  }
+
+  .enrichment-score {
+    width: fit-content;
+  }
+}
