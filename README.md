@@ -110,6 +110,9 @@ supabase/migrations/001_create_prospects.sql
 supabase/migrations/002_generalize_prospects.sql
 supabase/migrations/003_add_business_email.sql
 supabase/migrations/004_add_prospect_enrichment.sql
+supabase/migrations/005_add_opportunity_scoring.sql
+supabase/migrations/006_reconcile_prospect_persistence.sql
+supabase/migrations/007_add_contact_resolution.sql
 ```
 
 Migration 004 is defensive and also creates the email column/index if migration
@@ -240,3 +243,67 @@ supabase/migrations/006_reconcile_prospect_persistence.sql
 
 This migration reconciles the Agent 1-3 schema, indexes, constraints, RLS
 enablement, and backend `service_role` table grants.
+
+
+## Agent 4: Deep Contact Resolution
+
+Agent 4 runs only after Agent 2 enrichment and Agent 3 scoring. By default, a
+prospect must score at least 65 before contact resolution is allowed. Override
+that gate with `CONTACT_RESOLUTION_MIN_SCORE`.
+
+Agent 4 performs a new public-business research pass focused specifically on:
+
+- Verifying the strongest relevant decision-maker.
+- Ranking up to five secondary decision-makers.
+- Verifying public business email, business phone, contact forms, company
+  LinkedIn, and public professional profile routes.
+- Preferring role relevance and verified contactability over title alone.
+- Producing an evidence-based outreach angle and recommended channel for Agent 5.
+
+Agent 4 does not write outreach copy and does not send messages. It does not
+infer email addresses, phone numbers, or private contact information.
+
+Public endpoint:
+
+```
+POST /api/public/contact-resolution
+```
+
+Private endpoint:
+
+```
+POST /api/agents/contact-resolution
+Authorization: Bearer <AGENT_API_TOKEN>
+```
+
+The UI exposes **Resolve Decision Maker** only when the Agent 3 score meets the
+configured threshold.
+
+Run migration 007:
+
+```
+supabase/migrations/007_add_contact_resolution.sql
+```
+
+Agent 4 stores:
+
+- `primary_decision_maker`
+- `secondary_decision_makers`
+- `resolved_contact_paths`
+- `outreach_angle`
+- `contact_resolution_summary`
+- `contact_resolution_confidence`
+- `contact_resolution_score`
+- `contact_resolution_agent`
+- `contact_resolved_at`
+
+A successfully persisted contact resolution moves the prospect status to
+`CONTACT_RESOLVED`.
+
+Optional Agent 4 environment settings:
+
+- `CONTACT_RESEARCH_MODEL`
+- `CONTACT_FORMAT_MODEL`
+- `CONTACT_RESOLUTION_MIN_SCORE`
+
+The default threshold is 65.
