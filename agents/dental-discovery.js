@@ -101,31 +101,102 @@ const dentalFormatterAgent = new Agent({
   name: "Dental Prospect Research Formatter",
   model: formatModel,
   instructions: `
-Convert the supplied dental-practice research dossier into the required
-structured discovery output.
+Convert the supplied dental-practice research dossier into JSON only.
 
 Do not do new web research and do not add facts that are absent from the
 dossier. Preserve source URLs exactly when they are valid public HTTP/HTTPS
 URLs. Omit weak candidates rather than inventing missing information.
 
+Return exactly one JSON object with this shape:
+{
+  "market": "string",
+  "radiusMiles": 25,
+  "searchSummary": "string",
+  "prospects": [
+    {
+      "name": "string",
+      "website": "https://...",
+      "city": "string",
+      "state": "string",
+      "phone": "string or null",
+      "practiceType": "independent | small_group | unknown",
+      "independenceConfidence": 0,
+      "services": {
+        "implants": true,
+        "fullMouth": false,
+        "cosmetic": true,
+        "clearAligners": false,
+        "sedation": false
+      },
+      "discoveryConfidence": 0,
+      "fitReasons": ["string"],
+      "evidence": [
+        {
+          "url": "https://...",
+          "fact": "string"
+        }
+      ]
+    }
+  ]
+}
+
 Rules:
+- Return JSON only. No markdown fences and no commentary.
 - discoveryConfidence is confidence that this is a valid, relevant discovery
-  candidate, not a final sales opportunity score;
-- independenceConfidence reflects only the evidence in the dossier;
+  candidate, not a final sales opportunity score.
+- independenceConfidence reflects only the evidence in the dossier.
 - service booleans may be true only when the dossier contains evidence for that
-  service;
-- phone may be null;
-- practiceType must be independent, small_group, or unknown;
-- every retained prospect must have at least one evidence item;
+  service.
+- phone may be null.
+- practiceType must be independent, small_group, or unknown.
+- every retained prospect must have at least one evidence item.
 - website must be the first-party practice website, not a directory or social
   profile.
 `,
-  outputType: DentalDiscoveryOutput,
   modelSettings: {
     reasoning: { effort: "low" },
     text: { verbosity: "low" }
   }
 });
+
+function parseFormatterJson(value) {
+  if (typeof value !== "string") {
+    throw new Error("Dental formatter did not return text.");
+  }
+
+  const trimmed = value.trim();
+  const unfenced = trimmed
+    .replace(/^\`\`\`(?:json)?\s*/i, "")
+    .replace(/\s*\`\`\`$/, "");
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(unfenced);
+  } catch {
+    const firstBrace = unfenced.indexOf("{");
+    const lastBrace = unfenced.lastIndexOf("}");
+
+    if (firstBrace === -1 || lastBrace <= firstBrace) {
+      throw new Error("Dental formatter returned invalid JSON.");
+    }
+
+    parsed = JSON.parse(unfenced.slice(firstBrace, lastBrace + 1));
+  }
+
+  const validated = DentalDiscoveryOutput.safeParse(parsed);
+
+  if (!validated.success) {
+    const details = validated.error.issues
+      .slice(0, 6)
+      .map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+      .join("; ");
+
+    throw new Error(`Dental formatter JSON failed local validation: ${details}`);
+  }
+
+  return validated.data;
+}
 
 const SERVICE_LABELS = {
   implants: "dental implants",
@@ -254,15 +325,24 @@ ${researchResult.finalOutput}
   }
 
   if (!formattedResult.finalOutput) {
-    throw new Error("Dental formatter returned no structured output.");
+    throw new Error("Dental formatter returned no output.");
+  }
+
+  let formattedOutput;
+
+  try {
+    formattedOutput = parseFormatterJson(formattedResult.finalOutput);
+  } catch (error) {
+    error.agentStage = "local_json_validation";
+    throw error;
   }
 
   return {
-    ...formattedResult.finalOutput,
+    ...formattedOutput,
     market,
     radiusMiles,
     prospects: dedupeProspects(
-      formattedResult.finalOutput.prospects,
+      formattedOutput.prospects,
       maxResults
     )
   };
