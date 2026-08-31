@@ -233,7 +233,7 @@ types:
   `Authorization: Bearer ...` so they can bypass RLS as intended.
 
 The `/health` endpoint now checks the actual `prospects` table and validates
-that all columns required by Agents 1-3 are available.
+that all columns required by Agents 1-5 are available.
 
 If migrations were applied out of order, run the idempotent repair migration:
 
@@ -241,7 +241,7 @@ If migrations were applied out of order, run the idempotent repair migration:
 supabase/migrations/006_reconcile_prospect_persistence.sql
 ```
 
-This migration reconciles the Agent 1-3 schema, indexes, constraints, RLS
+This migration reconciles the Agent 1-5 schema, indexes, constraints, RLS
 enablement, and backend `service_role` table grants.
 
 
@@ -307,3 +307,67 @@ Optional Agent 4 environment settings:
 - `CONTACT_RESOLUTION_MIN_SCORE`
 
 The default threshold is 65.
+
+
+## Agent 5: Personalized Outreach Composer
+
+Agent 5 runs after Agent 4 contact resolution. It does not perform web research
+and it does not send messages. It composes a reusable draft package entirely
+from the verified context produced by Agents 1-4.
+
+The package includes:
+
+- Primary email subject and body.
+- Respectful follow-up email.
+- Concise LinkedIn message.
+- Permission-based call opener.
+- Website contact-form message.
+- Personalization summary.
+- Evidence used in the drafts.
+- Claims the outreach should avoid.
+- Preferred channel carried forward from Agent 4.
+- Draft-generation confidence.
+
+Agent 5 is specifically instructed not to mention internal scoring,
+enrichment, monitoring, or research to the prospect, and not to invent private
+business problems or unsupported claims.
+
+Public endpoint:
+
+```
+POST /api/public/outreach
+```
+
+Private endpoint:
+
+```
+POST /api/agents/outreach
+Authorization: Bearer <AGENT_API_TOKEN>
+```
+
+The UI exposes **Create Outreach Drafts** after Agent 4 completes. Each draft
+can be copied individually. There is intentionally no send button in Agent 5.
+
+Run migration 008:
+
+```
+supabase/migrations/008_add_outreach_drafts.sql
+```
+
+Agent 5 stores:
+
+- `outreach_package`
+- `outreach_preferred_channel`
+- `outreach_generation_confidence`
+- `outreach_agent`
+- `outreach_generated_at`
+
+A successfully persisted draft package moves the prospect status to
+`OUTREACH_DRAFTED`.
+
+Optional Agent 5 environment setting:
+
+- `OUTREACH_MODEL`
+
+Sending, CRM creation, or automated sequence enrollment is intentionally
+reserved for a later approval/publishing stage.
