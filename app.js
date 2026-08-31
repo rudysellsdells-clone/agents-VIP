@@ -3,7 +3,12 @@ import crypto from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { discoverDentalProspects } from "./agents/dental-discovery.js";
+import { discoverProspects } from "./agents/prospect-discovery.js";
+import {
+  COMPANY_TYPE_IDS,
+  getIndustryConfig,
+  getPublicIndustryConfigs
+} from "./config/industries.js";
 import {
   checkSupabaseConnection,
   upsertDiscoveredProspects
@@ -42,7 +47,8 @@ async function sendStatic(res, pathname) {
     const content = await readFile(path.join(publicDir, asset.file));
     res.writeHead(200, {
       "Content-Type": asset.type,
-      "Cache-Control": asset.file === "index.html" ? "no-cache" : "public, max-age=300",
+      "Cache-Control":
+        asset.file === "index.html" ? "no-cache" : "public, max-age=300",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "SAMEORIGIN",
       "Referrer-Policy": "strict-origin-when-cross-origin"
@@ -50,7 +56,10 @@ async function sendStatic(res, pathname) {
     res.end(content);
   } catch (error) {
     console.error("Static asset error:", error);
-    sendJson(res, 500, { status: "error", error: "Unable to load application." });
+    sendJson(res, 500, {
+      status: "error",
+      error: "Unable to load application."
+    });
   }
 
   return true;
@@ -63,7 +72,9 @@ async function readJsonBody(req, maxBytes = 32768) {
     body += chunk;
 
     if (Buffer.byteLength(body) > maxBytes) {
-      throw new Error("Request body is too large.");
+      const error = new Error("Request body is too large.");
+      error.validation = true;
+      throw error;
     }
   }
 
@@ -72,7 +83,9 @@ async function readJsonBody(req, maxBytes = 32768) {
   try {
     return JSON.parse(body);
   } catch {
-    throw new Error("Request body must be valid JSON.");
+    const error = new Error("Request body must be valid JSON.");
+    error.validation = true;
+    throw error;
   }
 }
 
@@ -158,18 +171,38 @@ function consumePublicRateLimit(req) {
   };
 }
 
+function validationError(message) {
+  const error = new Error(message);
+  error.validation = true;
+  return error;
+}
+
 function normalizeStringArray(value, allowed) {
   if (!Array.isArray(value)) return [];
+
+  const allowedSet = new Set(allowed);
 
   return [...new Set(
     value
       .filter((item) => typeof item === "string")
       .map((item) => item.trim())
-      .filter((item) => allowed.includes(item))
+      .filter((item) => allowedSet.has(item))
   )];
 }
 
-function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
+function validateDiscoveryRequest(
+  body,
+  { publicRequest = false, forcedIndustry = null } = {}
+) {
+  const industry =
+    forcedIndustry ||
+    (typeof body.industry === "string" ? body.industry.trim() : "dental");
+  const config = getIndustryConfig(industry);
+
+  if (!config) {
+    throw validationError("Choose a supported industry.");
+  }
+
   const market = typeof body.market === "string" ? body.market.trim() : "";
   const radiusMiles = Number(body.radiusMiles ?? 25);
   const maxResults = Number(body.maxResults ?? (publicRequest ? 5 : 15));
@@ -178,7 +211,7 @@ function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
   const maxCount = publicRequest ? 10 : 25;
 
   if (market.length < 2 || market.length > 120) {
-    throw new Error("Enter a valid city, state, or market.");
+    throw validationError("Enter a valid city, state, or market.");
   }
 
   if (
@@ -186,7 +219,9 @@ function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
     radiusMiles < 1 ||
     radiusMiles > maxRadius
   ) {
-    throw new Error(`Radius must be between 1 and ${maxRadius} miles.`);
+    throw validationError(
+      "Radius must be between 1 and " + maxRadius + " miles."
+    );
   }
 
   if (
@@ -194,41 +229,40 @@ function validateDiscoveryRequest(body, { publicRequest = false } = {}) {
     maxResults < 1 ||
     maxResults > maxCount
   ) {
-    throw new Error(`Number of prospects must be between 1 and ${maxCount}.`);
+    throw validationError(
+      "Number of prospects must be between 1 and " + maxCount + "."
+    );
   }
 
-  const priorities = normalizeStringArray(body.priorities, [
-    "implants",
-    "fullMouth",
-    "cosmetic",
-    "clearAligners",
-    "sedation"
-  ]);
+  const priorities = normalizeStringArray(
+    body.priorities,
+    config.capabilities.map((item) => item.id)
+  );
 
-  const practiceTypes = normalizeStringArray(body.practiceTypes, [
-    "independent",
-    "small_group",
-    "unknown"
-  ]);
+  const companyTypes = normalizeStringArray(
+    body.companyTypes || body.practiceTypes,
+    COMPANY_TYPE_IDS
+  );
 
   return {
+    industry,
     market,
     radiusMiles,
     maxResults,
     priorities,
-    practiceTypes: practiceTypes.length
-      ? practiceTypes
+    companyTypes: companyTypes.length
+      ? companyTypes
       : ["independent", "small_group"]
   };
 }
-
 
 function classifyAgentError(error) {
   const status = Number(error?.status || error?.statusCode || 0) || null;
   const code = String(error?.code || error?.error?.code || "").toLowerCase();
   const type = String(error?.type || error?.error?.type || "").toLowerCase();
   const message = String(error?.message || error?.error?.message || "");
-  const haystack = `${code} ${type} ${message}`.toLowerCase();
+  const haystack = (code + " " + type + " " + message).toLowerCase();
+  const stage = error?.agentStage || null;
 
   if (
     haystack.includes("insufficient_quota") ||
@@ -238,8 +272,8 @@ function classifyAgentError(error) {
     return {
       statusCode: 503,
       publicMessage:
-        "OpenAI API billing or quota is not available for this project. Check the API Platform billing/usage settings for the key used by this app.",
-      diagnostic: { provider: "openai", category: "quota", stage: error?.agentStage || null, status, code: code || null }
+        "OpenAI API billing or quota is not available for this project.",
+      diagnostic: { provider: "openai", category: "quota", stage, status, code: code || null }
     };
   }
 
@@ -247,17 +281,21 @@ function classifyAgentError(error) {
     return {
       statusCode: 503,
       publicMessage:
-        "The OpenAI API is currently rate-limiting this agent. Please retry shortly.",
-      diagnostic: { provider: "openai", category: "rate_limit", stage: error?.agentStage || null, status, code: code || null }
+        "The OpenAI API is currently rate-limiting this search. Please retry shortly.",
+      diagnostic: { provider: "openai", category: "rate_limit", stage, status, code: code || null }
     };
   }
 
-  if (status === 401 || haystack.includes("invalid api key") || haystack.includes("incorrect api key")) {
+  if (
+    status === 401 ||
+    haystack.includes("invalid api key") ||
+    haystack.includes("incorrect api key")
+  ) {
     return {
       statusCode: 503,
       publicMessage:
-        "The OpenAI API key configured on the server was rejected. Check OPENAI_API_KEY in the cPanel app environment.",
-      diagnostic: { provider: "openai", category: "authentication", stage: error?.agentStage || null, status, code: code || null }
+        "The OpenAI API key configured on the server was rejected.",
+      diagnostic: { provider: "openai", category: "authentication", stage, status, code: code || null }
     };
   }
 
@@ -265,8 +303,8 @@ function classifyAgentError(error) {
     return {
       statusCode: 503,
       publicMessage:
-        "The OpenAI project does not currently have permission to run this agent or one of its tools.",
-      diagnostic: { provider: "openai", category: "permission", stage: error?.agentStage || null, status, code: code || null }
+        "The OpenAI project does not currently have permission to run this search.",
+      diagnostic: { provider: "openai", category: "permission", stage, status, code: code || null }
     };
   }
 
@@ -279,17 +317,26 @@ function classifyAgentError(error) {
     return {
       statusCode: 504,
       publicMessage:
-        "The research request took too long to finish. This may be a server or proxy timeout rather than a search-quality problem.",
-      diagnostic: { provider: "runtime", category: "timeout", stage: error?.agentStage || null, status, code: code || null }
+        "The research request took too long to finish. Please try a smaller search.",
+      diagnostic: { provider: "runtime", category: "timeout", stage, status, code: code || null }
     };
   }
 
-  if (status === 400 || haystack.includes("schema") || haystack.includes("structured output")) {
+  if (stage === "local_json_validation") {
     return {
       statusCode: 500,
       publicMessage:
-        "The agent request reached OpenAI but its tool or structured-output configuration was rejected.",
-      diagnostic: { provider: "openai", category: "request_configuration", stage: error?.agentStage || null, status, code: code || null }
+        "Research completed, but the formatter could not normalize the results. Please retry the search.",
+      diagnostic: { provider: "runtime", category: "format_validation", stage, status, code: code || null }
+    };
+  }
+
+  if (status === 400 || haystack.includes("schema")) {
+    return {
+      statusCode: 500,
+      publicMessage:
+        "The agent request reached OpenAI but its request configuration was rejected.",
+      diagnostic: { provider: "openai", category: "request_configuration", stage, status, code: code || null }
     };
   }
 
@@ -300,7 +347,7 @@ function classifyAgentError(error) {
     diagnostic: {
       provider: status ? "openai" : "runtime",
       category: "unknown",
-      stage: error?.agentStage || null,
+      stage,
       status,
       code: code || null
     }
@@ -317,7 +364,7 @@ async function checkOpenAI() {
   try {
     const response = await fetch("https://api.openai.com/v1/models", {
       headers: {
-        Authorization: `Bearer ${key}`
+        Authorization: "Bearer " + key
       }
     });
 
@@ -336,7 +383,7 @@ async function checkOpenAI() {
 }
 
 async function runDiscovery(payload) {
-  const discovery = await discoverDentalProspects(payload);
+  const discovery = await discoverProspects(payload);
 
   let persistence;
 
@@ -351,14 +398,15 @@ async function runDiscovery(payload) {
     persistence = {
       ok: false,
       saved: 0,
-      error: "Results were found but could not be saved to the prospect database."
+      error:
+        "Results were found but could not be saved to the prospect database."
     };
   }
 
   return { discovery, persistence };
 }
 
-async function handlePrivateDentalDiscovery(req, res) {
+async function handlePrivateDiscovery(req, res, forcedIndustry = null) {
   const auth = isAuthorized(req);
 
   if (!auth.ok) {
@@ -372,12 +420,12 @@ async function handlePrivateDentalDiscovery(req, res) {
 
   try {
     const body = await readJsonBody(req);
-    const payload = validateDiscoveryRequest(body);
+    const payload = validateDiscoveryRequest(body, { forcedIndustry });
     const { discovery, persistence } = await runDiscovery(payload);
 
     sendJson(res, 200, {
       status: persistence.ok ? "ok" : "partial",
-      agent: "dental-discovery-v1",
+      agent: "universal-prospect-discovery-v1",
       models: {
         research:
           process.env.DISCOVERY_RESEARCH_MODEL ||
@@ -392,24 +440,36 @@ async function handlePrivateDentalDiscovery(req, res) {
       discovery
     });
   } catch (error) {
-    console.error("Private dental discovery failed:", error);
-    const validationError =
-      error.message.startsWith("Enter ") ||
-      error.message.startsWith("Radius ") ||
-      error.message.startsWith("Number ");
+    console.error("Private discovery failed:", error);
 
-    sendJson(res, validationError ? 400 : 500, {
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "universal-prospect-discovery-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+    sendJson(res, classified.statusCode, {
       status: "error",
-      agent: "dental-discovery-v1",
-      error: error.message
+      agent: "universal-prospect-discovery-v1",
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
     });
   }
 }
 
-async function handlePublicDentalDiscovery(req, res) {
+async function handlePublicDiscovery(req, res, forcedIndustry = null) {
   try {
     const body = await readJsonBody(req);
-    const payload = validateDiscoveryRequest(body, { publicRequest: true });
+    const payload = validateDiscoveryRequest(body, {
+      publicRequest: true,
+      forcedIndustry
+    });
+
     const limit = consumePublicRateLimit(req);
 
     if (!limit.allowed) {
@@ -437,7 +497,7 @@ async function handlePublicDentalDiscovery(req, res) {
       200,
       {
         status: persistence.ok ? "ok" : "partial",
-        agent: "dental-discovery-v1",
+        agent: "universal-prospect-discovery-v1",
         persistence,
         limits: {
           remainingThisHour: limit.remaining,
@@ -451,16 +511,12 @@ async function handlePublicDentalDiscovery(req, res) {
       }
     );
   } catch (error) {
-    console.error("Public dental discovery failed:", error);
-    const validationError =
-      error.message.startsWith("Enter ") ||
-      error.message.startsWith("Radius ") ||
-      error.message.startsWith("Number ");
+    console.error("Public discovery failed:", error);
 
-    if (validationError) {
+    if (error.validation) {
       sendJson(res, 400, {
         status: "error",
-        agent: "dental-discovery-v1",
+        agent: "universal-prospect-discovery-v1",
         error: error.message
       });
       return;
@@ -470,7 +526,7 @@ async function handlePublicDentalDiscovery(req, res) {
 
     sendJson(res, classified.statusCode, {
       status: "error",
-      agent: "dental-discovery-v1",
+      agent: "universal-prospect-discovery-v1",
       error: classified.publicMessage,
       diagnostic: classified.diagnostic,
       requestId: error?.request_id || error?.requestId || null
@@ -479,10 +535,17 @@ async function handlePublicDentalDiscovery(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+  const url = new URL(req.url, "http://" + (req.headers.host || "localhost"));
 
   if (req.method === "GET" && STATIC_FILES.has(url.pathname)) {
     await sendStatic(res, url.pathname);
+    return;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/industries") {
+    sendJson(res, 200, {
+      industries: getPublicIndustryConfigs()
+    });
     return;
   }
 
@@ -496,7 +559,7 @@ const server = http.createServer(async (req, res) => {
 
     sendJson(res, healthy ? 200 : 503, {
       status: healthy ? "ok" : "degraded",
-      service: "VIP Prospecting Agents",
+      service: "VIP Prospect Intelligence",
       node: {
         connected: true,
         version: process.version,
@@ -504,14 +567,15 @@ const server = http.createServer(async (req, res) => {
       },
       supabase,
       openai,
-      dentalDiscovery: {
+      discovery: {
+        industries: getPublicIndustryConfigs().map((item) => item.id),
         privateEndpoint: {
           available: Boolean(process.env.AGENT_API_TOKEN),
-          endpoint: "/api/agents/dental-discovery"
+          endpoint: "/api/agents/discovery"
         },
         publicEndpoint: {
           available: true,
-          endpoint: "/api/public/dental-discovery",
+          endpoint: "/api/public/discovery",
           maxResults: 10,
           searchesPerHour: PUBLIC_MAX_SEARCHES
         }
@@ -520,11 +584,22 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && url.pathname === "/api/agents/discovery") {
+    await handlePrivateDiscovery(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/public/discovery") {
+    await handlePublicDiscovery(req, res);
+    return;
+  }
+
+  // Backward-compatible dental aliases.
   if (
     req.method === "POST" &&
     url.pathname === "/api/agents/dental-discovery"
   ) {
-    await handlePrivateDentalDiscovery(req, res);
+    await handlePrivateDiscovery(req, res, "dental");
     return;
   }
 
@@ -532,7 +607,7 @@ const server = http.createServer(async (req, res) => {
     req.method === "POST" &&
     url.pathname === "/api/public/dental-discovery"
   ) {
-    await handlePublicDentalDiscovery(req, res);
+    await handlePublicDiscovery(req, res, "dental");
     return;
   }
 
@@ -543,5 +618,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  console.log(`VIP Prospecting Agents running on port ${port}`);
+  console.log("VIP Prospect Intelligence running on port " + port);
 });
