@@ -559,8 +559,11 @@ function showResults(payload) {
 
   if (payload.persistence?.ok === false) {
     persistenceNote.hidden = false;
+    const category = payload.persistence?.diagnostic?.category;
     persistenceNote.textContent =
-      "The search completed, but these prospects were not saved to the database. Run the latest Supabase migration if you have not already done so.";
+      "The search completed, but these prospects were not saved to the database." +
+      (category ? " Database diagnostic: " + category + "." : "") +
+      " Run the Supabase reconciliation migration and retry.";
   } else {
     persistenceNote.hidden = true;
   }
@@ -707,7 +710,11 @@ resultsList.addEventListener("click", async (event) => {
       container.innerHTML =
         renderScoring(data.scoring) +
         (data.persistence?.ok === false
-          ? '<div class="persistence-note">Score calculated, but it was not saved to Supabase. Run migration 005 and retry.</div>'
+          ? '<div class="persistence-note">Score calculated, but it was not saved to Supabase.' +
+            (data.persistence?.diagnostic?.category
+              ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
+              : "") +
+            " Run migration 006 and retry.</div>'
           : "");
 
       scoreTrigger.textContent = "Recalculate Score";
@@ -771,7 +778,11 @@ resultsList.addEventListener("click", async (event) => {
       container.innerHTML =
         renderEnrichment(data.enrichment, index) +
         (data.persistence?.ok === false
-          ? '<div class="persistence-note">Enrichment completed, but it was not saved to Supabase. Run the latest enrichment migration and retry.</div>'
+          ? '<div class="persistence-note">Enrichment completed, but it was not saved to Supabase.' +
+            (data.persistence?.diagnostic?.category
+              ? " Database diagnostic: " + escapeHtml(data.persistence.diagnostic.category) + "."
+              : "") +
+            " Run migration 006 and retry.</div>'
           : "");
       enrichTrigger.textContent = "Enriched";
       enrichTrigger.classList.add("enriched");
