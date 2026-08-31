@@ -6,6 +6,7 @@ import path from "node:path";
 import { discoverProspects } from "./agents/prospect-discovery.js";
 import { enrichProspect } from "./agents/prospect-enrichment.js";
 import { scoreProspect } from "./agents/prospect-scoring.js";
+import { resolveProspectContact } from "./agents/contact-resolution.js";
 import {
   COMPANY_TYPE_IDS,
   getIndustryConfig,
@@ -15,7 +16,8 @@ import {
   checkSupabaseConnection,
   upsertDiscoveredProspects,
   upsertProspectEnrichment,
-  saveProspectScore
+  saveProspectScore,
+  saveContactResolution
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
@@ -26,6 +28,11 @@ const PUBLIC_WINDOW_MS = 60 * 60 * 1000;
 const PUBLIC_MAX_SEARCHES = Math.max(
   1,
   Number(process.env.PUBLIC_SEARCHES_PER_HOUR || 20)
+);
+
+const CONTACT_RESOLUTION_MIN_SCORE = Math.max(
+  0,
+  Math.min(100, Number(process.env.CONTACT_RESOLUTION_MIN_SCORE || 65))
 );
 
 const STATIC_FILES = new Map([
@@ -328,7 +335,8 @@ function classifyAgentError(error) {
 
   if (
     stage === "local_json_validation" ||
-    stage === "enrichment_json_validation"
+    stage === "enrichment_json_validation" ||
+    stage === "contact_json_validation"
   ) {
     return {
       statusCode: 500,
@@ -887,6 +895,193 @@ async function handleScoring(req, res, requireAuth) {
   }
 }
 
+
+function validateContactResolutionRequest(body) {
+  const normalized = validateScoringRequest(body);
+  const scoring = body.scoring;
+
+  if (!scoring || typeof scoring !== "object") {
+    throw validationError("Agent 3 scoring is required before contact resolution.");
+  }
+
+  const score = Number(scoring.marketingOpportunityScore);
+
+  if (!Number.isFinite(score) || score < 0 || score > 100) {
+    throw validationError("A valid Marketing Opportunity Score is required.");
+  }
+
+  if (score < CONTACT_RESOLUTION_MIN_SCORE) {
+    throw validationError(
+      "This prospect scores " +
+        score +
+        ", below the Agent 4 threshold of " +
+        CONTACT_RESOLUTION_MIN_SCORE +
+        "."
+    );
+  }
+
+  const safeBreakdown =
+    scoring.breakdown && typeof scoring.breakdown === "object"
+      ? Object.fromEntries(
+          Object.entries(scoring.breakdown)
+            .slice(0, 12)
+            .map(([key, category]) => [
+              String(key).slice(0, 100),
+              {
+                score: Number.isFinite(Number(category?.score))
+                  ? Number(category.score)
+                  : 0,
+                max: Number.isFinite(Number(category?.max))
+                  ? Number(category.max)
+                  : 0,
+                reasons: Array.isArray(category?.reasons)
+                  ? category.reasons
+                      .filter((item) => typeof item === "string")
+                      .slice(0, 8)
+                      .map((item) => item.slice(0, 1000))
+                  : []
+              }
+            ])
+        )
+      : {};
+
+  return {
+    industry: normalized.industry,
+    prospect: normalized.prospect,
+    enrichment: normalized.enrichment,
+    scoring: {
+      marketingOpportunityScore: score,
+      tier:
+        typeof scoring.tier === "string"
+          ? scoring.tier.slice(0, 50)
+          : "",
+      nextAction:
+        typeof scoring.nextAction === "string"
+          ? scoring.nextAction.slice(0, 2000)
+          : "",
+      scoreVersion:
+        typeof scoring.scoreVersion === "string"
+          ? scoring.scoreVersion.slice(0, 100)
+          : "",
+      breakdown: safeBreakdown
+    }
+  };
+}
+
+async function runContactResolution(payload) {
+  const resolution = await resolveProspectContact(payload);
+
+  let persistence;
+
+  try {
+    const saved = await saveContactResolution(
+      payload.prospect,
+      resolution
+    );
+
+    persistence = {
+      ok: true,
+      saved: saved.length
+    };
+  } catch (error) {
+    console.error("Contact resolution persistence failed:", error);
+    persistence = {
+      ok: false,
+      saved: 0,
+      error:
+        "Contact resolution completed but could not be saved to the prospect database.",
+      diagnostic: classifyPersistenceError(error)
+    };
+  }
+
+  return { resolution, persistence };
+}
+
+async function handleContactResolution(req, res, requireAuth) {
+  if (requireAuth) {
+    const auth = isAuthorized(req);
+
+    if (!auth.ok) {
+      const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+      sendJson(res, statusCode, {
+        status: "error",
+        error: auth.reason
+      });
+      return;
+    }
+  }
+
+  try {
+    const body = await readJsonBody(req, 196608);
+    const payload = validateContactResolutionRequest(body);
+
+    let limit = null;
+
+    if (!requireAuth) {
+      limit = consumePublicRateLimit(req);
+
+      if (!limit.allowed) {
+        const retryAfter = Math.max(
+          1,
+          Math.ceil((limit.resetAt - Date.now()) / 1000)
+        );
+
+        sendJson(
+          res,
+          429,
+          {
+            status: "error",
+            error: "Public research limit reached. Please try again later."
+          },
+          { "Retry-After": String(retryAfter) }
+        );
+        return;
+      }
+    }
+
+    const { resolution, persistence } = await runContactResolution(payload);
+
+    const response = {
+      status: persistence.ok ? "ok" : "partial",
+      agent: "deep-contact-resolution-v1",
+      threshold: CONTACT_RESOLUTION_MIN_SCORE,
+      persistence,
+      resolution
+    };
+
+    if (limit) {
+      response.limits = {
+        remainingThisHour: limit.remaining,
+        resetsAt: new Date(limit.resetAt).toISOString()
+      };
+    }
+
+    sendJson(res, 200, response);
+  } catch (error) {
+    console.error("Contact resolution failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "deep-contact-resolution-v1",
+        error: error.message,
+        threshold: CONTACT_RESOLUTION_MIN_SCORE
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+
+    sendJson(res, classified.statusCode, {
+      status: "error",
+      agent: "deep-contact-resolution-v1",
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
+    });
+  }
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -1176,8 +1371,35 @@ const server = http.createServer(async (req, res) => {
           available: true,
           endpoint: "/api/public/scoring"
         }
+      },
+      contactResolution: {
+        minimumScore: CONTACT_RESOLUTION_MIN_SCORE,
+        privateEndpoint: {
+          available: Boolean(process.env.AGENT_API_TOKEN),
+          endpoint: "/api/agents/contact-resolution"
+        },
+        publicEndpoint: {
+          available: true,
+          endpoint: "/api/public/contact-resolution"
+        }
       }
     });
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/agents/contact-resolution"
+  ) {
+    await handleContactResolution(req, res, true);
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/public/contact-resolution"
+  ) {
+    await handleContactResolution(req, res, false);
     return;
   }
 
