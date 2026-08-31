@@ -1559,3 +1559,55 @@ footer {
     grid-column: auto;
   }
 }
+
+
+.persuasion-framework-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr);
+  gap: 16px;
+  margin-top: 14px;
+  border: 1px solid #e4dcc6;
+  border-radius: 12px;
+  padding: 13px;
+  background: #fffdf7;
+}
+
+.persuasion-framework-card h5 {
+  margin: 0;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: -.01em;
+}
+
+.persuasion-framework-card p:not(.eyebrow) {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.persuasion-framework-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.persuasion-framework-card ul {
+  margin: 0;
+  padding-left: 17px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.persuasion-framework-card li + li {
+  margin-top: 5px;
+}
+
+@media (max-width: 760px) {
+  .persuasion-framework-card {
+    grid-template-columns: 1fr;
+  }
+}
