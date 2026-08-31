@@ -7,6 +7,7 @@ import { discoverProspects } from "./agents/prospect-discovery.js";
 import { enrichProspect } from "./agents/prospect-enrichment.js";
 import { scoreProspect } from "./agents/prospect-scoring.js";
 import { resolveProspectContact } from "./agents/contact-resolution.js";
+import { composeOutreach } from "./agents/outreach-composer.js";
 import {
   COMPANY_TYPE_IDS,
   getIndustryConfig,
@@ -17,7 +18,8 @@ import {
   upsertDiscoveredProspects,
   upsertProspectEnrichment,
   saveProspectScore,
-  saveContactResolution
+  saveContactResolution,
+  saveOutreachPackage
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
@@ -336,7 +338,8 @@ function classifyAgentError(error) {
   if (
     stage === "local_json_validation" ||
     stage === "enrichment_json_validation" ||
-    stage === "contact_json_validation"
+    stage === "contact_json_validation" ||
+    stage === "outreach_json_validation"
   ) {
     return {
       statusCode: 500,
@@ -1085,6 +1088,261 @@ async function handleContactResolution(req, res, requireAuth) {
   }
 }
 
+
+function validateOutreachRequest(body) {
+  const normalized = validateContactResolutionRequest(body);
+  const resolution = body.contactResolution;
+
+  if (!resolution || typeof resolution !== "object") {
+    throw validationError(
+      "Agent 4 contact resolution is required before outreach composition."
+    );
+  }
+
+  const cleanText = (value, maxLength) =>
+    typeof value === "string" ? value.trim().slice(0, maxLength) : "";
+
+  const cleanEvidence = (value, maxItems = 6) =>
+    Array.isArray(value)
+      ? value
+          .slice(0, maxItems)
+          .map((item) => ({
+            url: cleanText(item?.url, 1000),
+            fact: cleanText(item?.fact, 1000)
+          }))
+          .filter((item) => item.url && item.fact)
+      : [];
+
+  const cleanPerson = (person) => {
+    if (!person || typeof person !== "object") return null;
+
+    const name = cleanText(person.name, 200);
+    const title = cleanText(person.title, 200);
+
+    if (!name || !title) return null;
+
+    return {
+      name,
+      title,
+      roleCategory: cleanText(person.roleCategory, 80) || "other",
+      whyThisPerson: cleanText(person.whyThisPerson, 1500),
+      publicBusinessEmail: cleanText(person.publicBusinessEmail, 254) || null,
+      publicBusinessPhone: cleanText(person.publicBusinessPhone, 100) || null,
+      professionalUrl: cleanText(person.professionalUrl, 1000) || null,
+      confidence: Number.isFinite(Number(person.confidence))
+        ? Math.max(0, Math.min(100, Math.round(Number(person.confidence))))
+        : 0,
+      evidence: cleanEvidence(person.evidence)
+    };
+  };
+
+  const primaryDecisionMaker = cleanPerson(
+    resolution.primaryDecisionMaker
+  );
+
+  const secondaryDecisionMakers = Array.isArray(
+    resolution.secondaryDecisionMakers
+  )
+    ? resolution.secondaryDecisionMakers
+        .map(cleanPerson)
+        .filter(Boolean)
+        .slice(0, 5)
+    : [];
+
+  const contactPaths = Array.isArray(resolution.contactPaths)
+    ? resolution.contactPaths
+        .slice(0, 12)
+        .map((path) => ({
+          type: cleanText(path?.type, 80) || "other",
+          label: cleanText(path?.label, 200),
+          value: cleanText(path?.value, 1000) || null,
+          url: cleanText(path?.url, 1000) || null,
+          confidence: Number.isFinite(Number(path?.confidence))
+            ? Math.max(0, Math.min(100, Math.round(Number(path.confidence))))
+            : 0,
+          evidence: cleanEvidence(path?.evidence, 4)
+        }))
+        .filter((path) => path.label)
+    : [];
+
+  const angle = resolution.outreachAngle || {};
+  const recommendedChannels = [
+    "email",
+    "phone",
+    "linkedin",
+    "contact_form",
+    "multi_channel"
+  ];
+
+  const outreachAngle = {
+    angle: cleanText(angle.angle, 3000),
+    evidenceBasis: Array.isArray(angle.evidenceBasis)
+      ? angle.evidenceBasis
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim().slice(0, 1000))
+          .filter(Boolean)
+          .slice(0, 6)
+      : [],
+    recommendedChannel: recommendedChannels.includes(
+      angle.recommendedChannel
+    )
+      ? angle.recommendedChannel
+      : "multi_channel",
+    reasonForChannel: cleanText(angle.reasonForChannel, 2000),
+    avoidClaims: Array.isArray(angle.avoidClaims)
+      ? angle.avoidClaims
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim().slice(0, 1000))
+          .filter(Boolean)
+          .slice(0, 8)
+      : []
+  };
+
+  if (!outreachAngle.angle || outreachAngle.evidenceBasis.length === 0) {
+    throw validationError(
+      "Agent 4 must provide an evidence-based outreach angle before Agent 5 runs."
+    );
+  }
+
+  return {
+    ...normalized,
+    contactResolution: {
+      primaryDecisionMaker,
+      secondaryDecisionMakers,
+      contactPaths,
+      outreachAngle,
+      resolutionSummary: cleanText(
+        resolution.resolutionSummary,
+        4000
+      ),
+      resolutionConfidence: Number.isFinite(
+        Number(resolution.resolutionConfidence)
+      )
+        ? Math.max(
+            0,
+            Math.min(
+              100,
+              Math.round(Number(resolution.resolutionConfidence))
+            )
+          )
+        : 0
+    }
+  };
+}
+
+async function runOutreachComposition(payload) {
+  const outreach = await composeOutreach(payload);
+
+  let persistence;
+
+  try {
+    const saved = await saveOutreachPackage(
+      payload.prospect,
+      outreach
+    );
+
+    persistence = {
+      ok: true,
+      saved: saved.length
+    };
+  } catch (error) {
+    console.error("Outreach persistence failed:", error);
+    persistence = {
+      ok: false,
+      saved: 0,
+      error:
+        "Outreach drafts were created but could not be saved to the prospect database.",
+      diagnostic: classifyPersistenceError(error)
+    };
+  }
+
+  return { outreach, persistence };
+}
+
+async function handleOutreachComposition(req, res, requireAuth) {
+  if (requireAuth) {
+    const auth = isAuthorized(req);
+
+    if (!auth.ok) {
+      const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+      sendJson(res, statusCode, {
+        status: "error",
+        error: auth.reason
+      });
+      return;
+    }
+  }
+
+  try {
+    const body = await readJsonBody(req, 262144);
+    const payload = validateOutreachRequest(body);
+
+    let limit = null;
+
+    if (!requireAuth) {
+      limit = consumePublicRateLimit(req);
+
+      if (!limit.allowed) {
+        const retryAfter = Math.max(
+          1,
+          Math.ceil((limit.resetAt - Date.now()) / 1000)
+        );
+
+        sendJson(
+          res,
+          429,
+          {
+            status: "error",
+            error: "Public generation limit reached. Please try again later."
+          },
+          { "Retry-After": String(retryAfter) }
+        );
+        return;
+      }
+    }
+
+    const { outreach, persistence } = await runOutreachComposition(payload);
+
+    const response = {
+      status: persistence.ok ? "ok" : "partial",
+      agent: "personalized-outreach-composer-v1",
+      sendingEnabled: false,
+      persistence,
+      outreach
+    };
+
+    if (limit) {
+      response.limits = {
+        remainingThisHour: limit.remaining,
+        resetsAt: new Date(limit.resetAt).toISOString()
+      };
+    }
+
+    sendJson(res, 200, response);
+  } catch (error) {
+    console.error("Outreach composition failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "personalized-outreach-composer-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    const classified = classifyAgentError(error);
+
+    sendJson(res, classified.statusCode, {
+      status: "error",
+      agent: "personalized-outreach-composer-v1",
+      error: classified.publicMessage,
+      diagnostic: classified.diagnostic,
+      requestId: error?.request_id || error?.requestId || null
+    });
+  }
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -1385,8 +1643,35 @@ const server = http.createServer(async (req, res) => {
           available: true,
           endpoint: "/api/public/contact-resolution"
         }
+      },
+      outreach: {
+        sendingEnabled: false,
+        privateEndpoint: {
+          available: Boolean(process.env.AGENT_API_TOKEN),
+          endpoint: "/api/agents/outreach"
+        },
+        publicEndpoint: {
+          available: true,
+          endpoint: "/api/public/outreach"
+        }
       }
     });
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/agents/outreach"
+  ) {
+    await handleOutreachComposition(req, res, true);
+    return;
+  }
+
+  if (
+    req.method === "POST" &&
+    url.pathname === "/api/public/outreach"
+  ) {
+    await handleOutreachComposition(req, res, false);
     return;
   }
 
