@@ -873,7 +873,10 @@ async function handleScoring(req, res, requireAuth) {
       agent: "marketing-opportunity-scoring-v1",
       deterministic: true,
       persistence,
-      scoring
+      scoring,
+      contactResolutionMinimumScore: CONTACT_RESOLUTION_MIN_SCORE,
+      eligibleForContactResolution:
+        scoring.marketingOpportunityScore >= CONTACT_RESOLUTION_MIN_SCORE
     });
   } catch (error) {
     console.error("Prospect scoring failed:", error);
