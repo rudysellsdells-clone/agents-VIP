@@ -57,6 +57,11 @@ function safeUrl(value) {
   }
 }
 
+function safeEmail(value) {
+  const email = String(value || "").trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
 function createCheck(name, option, checked) {
   const label = document.createElement("label");
   label.className = "check";
@@ -152,6 +157,7 @@ function renderEvidence(evidence = []) {
 
 function renderProspect(prospect, index, industry) {
   const website = safeUrl(prospect.website);
+  const email = safeEmail(prospect.email);
   const reasons = (prospect.fitReasons || [])
     .slice(0, 4)
     .map((reason) => "<li>" + escapeHtml(reason) + "</li>")
@@ -208,6 +214,10 @@ function renderProspect(prospect, index, industry) {
             "<p>" +
               (prospect.phone
                 ? "Phone: " + escapeHtml(prospect.phone) + "<br>"
+                : "") +
+              (email
+                ? 'Email: <a href="mailto:' + escapeHtml(email) + '">' +
+                  escapeHtml(email) + "</a><br>"
                 : "") +
               "Company type: " +
               escapeHtml(companyTypeLabel(prospect.companyType, industry)) +
@@ -445,6 +455,7 @@ exportButton.addEventListener("click", () => {
     "City",
     "State",
     "Phone",
+    "Email",
     "Subindustry",
     "Company Type",
     "Discovery Confidence",
@@ -460,6 +471,7 @@ exportButton.addEventListener("click", () => {
     prospect.city,
     prospect.state,
     prospect.phone || "",
+    prospect.email || "",
     prospect.subindustry || "",
     companyTypeLabel(prospect.companyType, industry),
     prospect.discoveryConfidence,
