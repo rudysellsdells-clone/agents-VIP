@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { discoverProspects } from "./agents/prospect-discovery.js";
 import { enrichProspect } from "./agents/prospect-enrichment.js";
+import { scoreProspect } from "./agents/prospect-scoring.js";
 import {
   COMPANY_TYPE_IDS,
   getIndustryConfig,
@@ -13,7 +14,8 @@ import {
 import {
   checkSupabaseConnection,
   upsertDiscoveredProspects,
-  upsertProspectEnrichment
+  upsertProspectEnrichment,
+  saveProspectScore
 } from "./lib/supabase.js";
 
 const port = process.env.PORT || 3000;
@@ -624,6 +626,265 @@ async function handlePublicEnrichment(req, res) {
   }
 }
 
+
+function validateScoringRequest(body) {
+  const industry =
+    typeof body.industry === "string" ? body.industry.trim() : "";
+  const config = getIndustryConfig(industry);
+
+  if (!config) {
+    throw validationError("Choose a supported industry.");
+  }
+
+  if (!body.prospect || typeof body.prospect !== "object") {
+    throw validationError("A prospect is required for scoring.");
+  }
+
+  if (!body.enrichment || typeof body.enrichment !== "object") {
+    throw validationError("Agent 2 enrichment is required before scoring.");
+  }
+
+  const prospectPayload = validateEnrichmentRequest({
+    industry,
+    prospect: body.prospect
+  });
+
+  const enrichment = body.enrichment;
+
+  const cleanStringArray = (value, maxItems, maxLength) =>
+    Array.isArray(value)
+      ? value
+          .filter((item) => typeof item === "string")
+          .map((item) => item.trim().slice(0, maxLength))
+          .filter(Boolean)
+          .slice(0, maxItems)
+      : [];
+
+  const cleanEvidence = (value, maxItems = 4) =>
+    Array.isArray(value)
+      ? value
+          .slice(0, maxItems)
+          .map((item) => ({
+            url:
+              item && typeof item.url === "string"
+                ? item.url.slice(0, 1000)
+                : "",
+            fact:
+              item && typeof item.fact === "string"
+                ? item.fact.slice(0, 1000)
+                : ""
+          }))
+          .filter((item) => item.url && item.fact)
+      : [];
+
+  const allowedMarketingAreas = [
+    "website_ux",
+    "seo_content",
+    "conversion",
+    "positioning",
+    "reviews_reputation",
+    "social",
+    "paid_visibility",
+    "ai_discovery",
+    "competitive",
+    "other"
+  ];
+
+  const allowedMarketingTypes = ["strength", "opportunity", "unknown"];
+  const allowedRoleCategories = [
+    "owner",
+    "executive",
+    "marketing",
+    "operations",
+    "business_development",
+    "other"
+  ];
+
+  const normalizedEnrichment = {
+    businessSummary:
+      typeof enrichment.businessSummary === "string"
+        ? enrichment.businessSummary.slice(0, 5000)
+        : "",
+    subindustry:
+      typeof enrichment.subindustry === "string"
+        ? enrichment.subindustry.slice(0, 200)
+        : null,
+    serviceArea:
+      typeof enrichment.serviceArea === "string"
+        ? enrichment.serviceArea.slice(0, 1000)
+        : null,
+    companySizeSignals: cleanStringArray(
+      enrichment.companySizeSignals,
+      8,
+      500
+    ),
+    verifiedCapabilities: normalizeStringArray(
+      enrichment.verifiedCapabilities,
+      config.capabilities.map((item) => item.id)
+    ),
+    decisionMakers: Array.isArray(enrichment.decisionMakers)
+      ? enrichment.decisionMakers.slice(0, 8).map((person) => ({
+          name:
+            person && typeof person.name === "string"
+              ? person.name.slice(0, 200)
+              : "",
+          title:
+            person && typeof person.title === "string"
+              ? person.title.slice(0, 200)
+              : "",
+          roleCategory: allowedRoleCategories.includes(person?.roleCategory)
+            ? person.roleCategory
+            : "other",
+          professionalUrl:
+            person && typeof person.professionalUrl === "string"
+              ? person.professionalUrl.slice(0, 1000)
+              : null,
+          publicBusinessEmail:
+            person && typeof person.publicBusinessEmail === "string"
+              ? person.publicBusinessEmail.slice(0, 254)
+              : null,
+          confidence: Number.isFinite(Number(person?.confidence))
+            ? Math.max(0, Math.min(100, Math.round(Number(person.confidence))))
+            : 0,
+          evidence: cleanEvidence(person?.evidence, 5)
+        }))
+      : [],
+    contactPaths: Array.isArray(enrichment.contactPaths)
+      ? enrichment.contactPaths.slice(0, 10).map((path) => ({
+          type:
+            typeof path?.type === "string" ? path.type.slice(0, 80) : "other",
+          label:
+            typeof path?.label === "string" ? path.label.slice(0, 200) : "",
+          value:
+            typeof path?.value === "string" ? path.value.slice(0, 1000) : null,
+          url:
+            typeof path?.url === "string" ? path.url.slice(0, 1000) : null,
+          evidence: cleanEvidence(path?.evidence, 3)
+        }))
+      : [],
+    growthSignals: Array.isArray(enrichment.growthSignals)
+      ? enrichment.growthSignals.slice(0, 10).map((signal) => ({
+          signal:
+            typeof signal?.signal === "string"
+              ? signal.signal.slice(0, 500)
+              : "",
+          whyItMatters:
+            typeof signal?.whyItMatters === "string"
+              ? signal.whyItMatters.slice(0, 1000)
+              : "",
+          evidence: cleanEvidence(signal?.evidence, 4)
+        }))
+      : [],
+    marketingSignals: Array.isArray(enrichment.marketingSignals)
+      ? enrichment.marketingSignals.slice(0, 14).map((signal) => ({
+          area: allowedMarketingAreas.includes(signal?.area)
+            ? signal.area
+            : "other",
+          type: allowedMarketingTypes.includes(signal?.type)
+            ? signal.type
+            : "unknown",
+          finding:
+            typeof signal?.finding === "string"
+              ? signal.finding.slice(0, 1000)
+              : "",
+          whyItMatters:
+            typeof signal?.whyItMatters === "string"
+              ? signal.whyItMatters.slice(0, 1000)
+              : "",
+          evidence: cleanEvidence(signal?.evidence, 4)
+        }))
+      : [],
+    opportunitySummary:
+      typeof enrichment.opportunitySummary === "string"
+        ? enrichment.opportunitySummary.slice(0, 5000)
+        : "",
+    enrichmentConfidence: Number.isFinite(
+      Number(enrichment.enrichmentConfidence)
+    )
+      ? Math.max(
+          0,
+          Math.min(100, Math.round(Number(enrichment.enrichmentConfidence)))
+        )
+      : 0
+  };
+
+  return {
+    industry,
+    prospect: prospectPayload.prospect,
+    enrichment: normalizedEnrichment
+  };
+}
+
+async function runScoring(payload) {
+  const scoring = scoreProspect(payload);
+
+  let persistence;
+
+  try {
+    const saved = await saveProspectScore(payload.prospect, scoring);
+    persistence = {
+      ok: true,
+      saved: saved.length
+    };
+  } catch (error) {
+    console.error("Prospect scoring persistence failed:", error);
+    persistence = {
+      ok: false,
+      saved: 0,
+      error:
+        "Scoring completed but could not be saved to the prospect database."
+    };
+  }
+
+  return { scoring, persistence };
+}
+
+async function handleScoring(req, res, requireAuth) {
+  if (requireAuth) {
+    const auth = isAuthorized(req);
+
+    if (!auth.ok) {
+      const statusCode = auth.reason.includes("not configured") ? 503 : 401;
+      sendJson(res, statusCode, {
+        status: "error",
+        error: auth.reason
+      });
+      return;
+    }
+  }
+
+  try {
+    const body = await readJsonBody(req, 131072);
+    const payload = validateScoringRequest(body);
+    const { scoring, persistence } = await runScoring(payload);
+
+    sendJson(res, 200, {
+      status: persistence.ok ? "ok" : "partial",
+      agent: "marketing-opportunity-scoring-v1",
+      deterministic: true,
+      persistence,
+      scoring
+    });
+  } catch (error) {
+    console.error("Prospect scoring failed:", error);
+
+    if (error.validation) {
+      sendJson(res, 400, {
+        status: "error",
+        agent: "marketing-opportunity-scoring-v1",
+        error: error.message
+      });
+      return;
+    }
+
+    sendJson(res, 500, {
+      status: "error",
+      agent: "marketing-opportunity-scoring-v1",
+      error: "The deterministic scoring engine could not complete this score."
+    });
+  }
+}
+
 async function checkOpenAI() {
   const key = process.env.OPENAI_API_KEY;
 
@@ -859,8 +1120,29 @@ const server = http.createServer(async (req, res) => {
           available: true,
           endpoint: "/api/public/enrichment"
         }
+      },
+      scoring: {
+        deterministic: true,
+        privateEndpoint: {
+          available: Boolean(process.env.AGENT_API_TOKEN),
+          endpoint: "/api/agents/scoring"
+        },
+        publicEndpoint: {
+          available: true,
+          endpoint: "/api/public/scoring"
+        }
       }
     });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/agents/scoring") {
+    await handleScoring(req, res, true);
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/public/scoring") {
+    await handleScoring(req, res, false);
     return;
   }
 
