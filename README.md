@@ -86,7 +86,7 @@ The public route never receives server secrets. It currently enforces:
 - In-memory per-IP hourly search limiting.
 - Server-side input validation.
 
-Set `PUBLIC_SEARCHES_PER_HOUR` to change the default public limit of 3 searches
+Set `PUBLIC_SEARCHES_PER_HOUR` to change the default public limit of 20 searches
 per hour. The in-memory limiter is intentionally simple for V1; move it to a
 durable store before high-volume public promotion.
 
