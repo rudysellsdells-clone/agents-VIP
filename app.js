@@ -324,11 +324,14 @@ function classifyAgentError(error) {
     };
   }
 
-  if (stage === "local_json_validation") {
+  if (
+    stage === "local_json_validation" ||
+    stage === "enrichment_json_validation"
+  ) {
     return {
       statusCode: 500,
       publicMessage:
-        "Research completed, but the formatter could not normalize the results. Please retry the search.",
+        "Research completed, but the formatter could not normalize the results. Please retry the research.",
       diagnostic: { provider: "runtime", category: "format_validation", stage, status, code: code || null }
     };
   }
