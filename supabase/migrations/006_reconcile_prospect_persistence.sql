@@ -23,7 +23,16 @@ alter table public.prospects
   add column if not exists score_breakdown jsonb not null default '{}'::jsonb,
   add column if not exists score_version text,
   add column if not exists score_next_action text,
-  add column if not exists scored_at timestamptz;
+  add column if not exists scored_at timestamptz,
+  add column if not exists primary_decision_maker jsonb,
+  add column if not exists secondary_decision_makers jsonb not null default '[]'::jsonb,
+  add column if not exists resolved_contact_paths jsonb not null default '[]'::jsonb,
+  add column if not exists outreach_angle jsonb,
+  add column if not exists contact_resolution_summary text,
+  add column if not exists contact_resolution_confidence integer,
+  add column if not exists contact_resolution_score numeric(5,1),
+  add column if not exists contact_resolution_agent text,
+  add column if not exists contact_resolved_at timestamptz;
 
 -- Backfill generic Agent 1 fields from the original dental-era fields.
 update public.prospects
@@ -101,8 +110,36 @@ begin
         or marketing_opportunity_score between 0 and 100
       );
   end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'prospects_contact_resolution_confidence_check'
+      and conrelid = 'public.prospects'::regclass
+  ) then
+    alter table public.prospects
+      add constraint prospects_contact_resolution_confidence_check
+      check (
+        contact_resolution_confidence is null
+        or contact_resolution_confidence between 0 and 100
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'prospects_contact_resolution_score_check'
+      and conrelid = 'public.prospects'::regclass
+  ) then
+    alter table public.prospects
+      add constraint prospects_contact_resolution_score_check
+      check (
+        contact_resolution_score is null
+        or contact_resolution_score between 0 and 100
+      );
+  end if;
 end
-$$;
+$;
 
 create index if not exists prospects_status_idx
   on public.prospects (status);
@@ -141,6 +178,15 @@ create index if not exists prospects_score_tier_idx
 create index if not exists prospects_scored_at_idx
   on public.prospects (scored_at desc);
 
+create index if not exists prospects_contact_resolution_confidence_idx
+  on public.prospects (contact_resolution_confidence desc);
+
+create index if not exists prospects_contact_resolution_score_idx
+  on public.prospects (contact_resolution_score desc);
+
+create index if not exists prospects_contact_resolved_at_idx
+  on public.prospects (contact_resolved_at desc);
+
 alter table public.prospects enable row level security;
 
 -- Backend secret/service-role access. Secret keys map to the service_role
@@ -149,4 +195,4 @@ grant usage on schema public to service_role;
 grant select, insert, update, delete on table public.prospects to service_role;
 
 comment on table public.prospects is
-  'B2B prospects discovered, enriched, and scored by VIP prospecting agents.';
+  'B2B prospects discovered, enriched, scored, and contact-resolved by VIP prospecting agents.';
