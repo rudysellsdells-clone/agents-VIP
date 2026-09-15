@@ -79,8 +79,7 @@ jobs:
             'public/report-template-page3-b.js',
             'public/report-template-page3-c1.js',
             'public/report-template-page3-c2.js',
-            'public/report-template-page3-d1.js',
-            'public/report-template-page3-d2.js'
+            'public/report-template-page3-d1.js'
           ];
           for (const file of files) vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: file });
           const p1 = context.window.WSP_REPORT_TEMPLATE_PAGE1;
