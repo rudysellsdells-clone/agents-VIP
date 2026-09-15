@@ -1,50 +1,50 @@
 import { enrichProspect as enrichBaseProspect } from "./prospect-enrichment-base.js";
 import { getOrRunWebsiteAudit } from "../lib/website-audit-runtime.js";
 
-function marketingAreaForAuditArea(area) {
-  const mapping = {
-    content_freshness: "seo_content",
-    site_structure: "website_ux",
-    conversion: "conversion",
-    technical_seo: "seo_content",
-    structured_data: "seo_content",
-    platform_health: "website_ux",
-    site_hygiene: "website_ux",
-    ai_discoverability: "ai_discovery",
-    performance: "website_ux",
-    mobile: "website_ux",
-    accessibility: "website_ux",
-    trust: "positioning"
-  };
+function auditSummary(audit) {
+  if (!audit) return "";
 
-  return mapping[area] || "other";
-}
+  const scores = audit.scores || {};
+  const measured = [
+    ["website health", audit.websiteHealthScore],
+    ["content freshness", scores.contentFreshness],
+    ["site structure", scores.siteStructure],
+    ["conversion", scores.conversion],
+    ["technical SEO", scores.technicalSeo],
+    ["performance", scores.performance],
+    ["mobile", scores.mobile],
+    ["accessibility", scores.accessibility],
+    ["structured data", scores.structuredData],
+    ["platform health", scores.platformHealth],
+    ["trust", scores.trust],
+    ["AI discoverability", scores.aiDiscoverability]
+  ]
+    .filter(([, value]) => Number.isFinite(Number(value)))
+    .map(([label, value]) => label + " " + Number(value))
+    .join(", ");
 
-function auditSignals(audit) {
-  return (audit?.findings || []).slice(0, 8).map((finding) => ({
-    area: marketingAreaForAuditArea(finding.area),
-    type: "opportunity",
-    finding: finding.finding,
-    whyItMatters: finding.businessImplication,
-    evidence: (finding.evidence || []).slice(0, 4)
-  }));
-}
+  const findings = (audit.findings || [])
+    .slice(0, 4)
+    .map((item) => item.finding)
+    .filter(Boolean)
+    .join(" ");
 
-function dedupeMarketingSignals(signals) {
-  const seen = new Set();
-  const output = [];
+  const platform = audit.platform?.cmsDetected
+    ? " Platform detected: " +
+      audit.platform.cmsDetected +
+      (audit.platform.cmsVersionDetected
+        ? " " + audit.platform.cmsVersionDetected +
+          " (detected version only; currency not independently verified)."
+        : ".")
+    : "";
 
-  for (const signal of signals) {
-    const key = [signal.area, signal.type, signal.finding]
-      .map((value) => String(value || "").trim().toLowerCase())
-      .join("|");
-
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    output.push(signal);
-  }
-
-  return output.slice(0, 20);
+  return (
+    "Website Intelligence diagnostic (kept separate from the Marketing Opportunity Score): " +
+    (measured || "limited measurable data") +
+    ". " +
+    findings +
+    platform
+  ).trim();
 }
 
 export async function enrichProspect({ industry, prospect }) {
@@ -67,13 +67,13 @@ export async function enrichProspect({ industry, prospect }) {
   }
 
   const enrichment = await enrichBaseProspect({ industry, prospect });
+  const websiteSummary = auditSummary(websiteAudit);
 
   return {
     ...enrichment,
-    marketingSignals: dedupeMarketingSignals([
-      ...(enrichment.marketingSignals || []),
-      ...auditSignals(websiteAudit)
-    ]),
+    opportunitySummary: websiteSummary
+      ? enrichment.opportunitySummary + " " + websiteSummary
+      : enrichment.opportunitySummary,
     websiteAudit,
     websiteAuditCached,
     websiteAuditError
