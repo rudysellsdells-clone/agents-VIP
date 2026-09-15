@@ -82,17 +82,28 @@ function auditObservation(audit) {
 }
 
 export async function enrichProspect({ industry, prospect }) {
+  const [auditResult, enrichmentResult] = await Promise.allSettled([
+    getOrRunWebsiteAudit({ industry, prospect }),
+    enrichBaseProspect({ industry, prospect })
+  ]);
+
+  if (enrichmentResult.status === "rejected") {
+    throw enrichmentResult.reason;
+  }
+
+  const enrichment = enrichmentResult.value;
   let websiteAudit = null;
   let websiteAuditCached = false;
   let websiteAuditError = null;
 
-  try {
-    const result = await getOrRunWebsiteAudit({ industry, prospect });
-    websiteAudit = compactAudit(result.audit);
-    websiteAuditCached = Boolean(result.cached);
-    websiteAuditError = result.persistenceError || null;
-  } catch (error) {
-    websiteAuditError = String(error?.message || error).slice(0, 1000);
+  if (auditResult.status === "fulfilled") {
+    websiteAudit = compactAudit(auditResult.value.audit);
+    websiteAuditCached = Boolean(auditResult.value.cached);
+    websiteAuditError = auditResult.value.persistenceError || null;
+  } else {
+    websiteAuditError = String(
+      auditResult.reason?.message || auditResult.reason
+    ).slice(0, 1000);
     console.warn(
       "Website Intelligence audit could not complete for",
       prospect.name,
@@ -100,7 +111,6 @@ export async function enrichProspect({ industry, prospect }) {
     );
   }
 
-  const enrichment = await enrichBaseProspect({ industry, prospect });
   const websiteSummary = auditSummary(websiteAudit);
   const observation = auditObservation(websiteAudit);
 
