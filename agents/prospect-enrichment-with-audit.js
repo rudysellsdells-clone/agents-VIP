@@ -1,4 +1,4 @@
-import { enrichProspect as enrichBaseProspect } from "./prospect-enrichment.js";
+import { enrichProspect as enrichBaseProspect } from "./prospect-enrichment-base.js";
 import { getOrRunWebsiteAudit } from "../lib/website-audit-runtime.js";
 
 function marketingAreaForAuditArea(area) {
