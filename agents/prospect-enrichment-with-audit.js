@@ -7,27 +7,30 @@ function compactAudit(audit) {
   return summary;
 }
 
-function auditSummary(audit) {
+function auditScoreLine(audit) {
   if (!audit) return "";
-
   const scores = audit.scores || {};
-  const measured = [
-    ["website health", audit.websiteHealthScore],
-    ["content freshness", scores.contentFreshness],
-    ["site structure", scores.siteStructure],
-    ["conversion", scores.conversion],
-    ["technical SEO", scores.technicalSeo],
-    ["performance", scores.performance],
-    ["mobile", scores.mobile],
-    ["accessibility", scores.accessibility],
-    ["structured data", scores.structuredData],
-    ["platform health", scores.platformHealth],
-    ["trust", scores.trust],
+  return [
+    ["Health", audit.websiteHealthScore],
+    ["Freshness", scores.contentFreshness],
+    ["Structure", scores.siteStructure],
+    ["Conversion", scores.conversion],
+    ["SEO", scores.technicalSeo],
+    ["Performance", scores.performance],
+    ["Mobile", scores.mobile],
+    ["Accessibility", scores.accessibility],
+    ["Schema", scores.structuredData],
+    ["Platform", scores.platformHealth],
+    ["Trust", scores.trust],
     ["AI discoverability", scores.aiDiscoverability]
   ]
     .filter(([, value]) => Number.isFinite(Number(value)))
-    .map(([label, value]) => label + " " + Number(value))
-    .join(", ");
+    .map(([label, value]) => label + " " + Number(value) + "/100")
+    .join(" • ");
+}
+
+function auditSummary(audit) {
+  if (!audit) return "";
 
   const findings = (audit.findings || [])
     .slice(0, 4)
@@ -45,12 +48,37 @@ function auditSummary(audit) {
     : "";
 
   return (
-    "Website Intelligence diagnostic (kept separate from the Marketing Opportunity Score): " +
-    (measured || "limited measurable data") +
-    ". " +
-    findings +
-    platform
+    "Website Intelligence diagnostic, separate from the Marketing Opportunity Score: " +
+    (auditScoreLine(audit) || "limited measurable data") +
+    ". " + findings + platform
   ).trim();
+}
+
+function auditObservation(audit) {
+  if (!audit) return null;
+
+  const evidence = (audit.findings || [])
+    .flatMap((item) => item.evidence || [])
+    .filter((item) => item?.url && item?.fact)
+    .slice(0, 4);
+
+  if (!evidence.length && audit.website) {
+    evidence.push({
+      url: audit.website,
+      fact: "Direct first-party Website Intelligence measurement."
+    });
+  }
+
+  return {
+    area: "other",
+    type: "unknown",
+    finding:
+      "Website Intelligence scorecard — " +
+      (auditScoreLine(audit) || "limited measurable data"),
+    whyItMatters:
+      "This diagnostic is stored separately from Agent 3 scoring. It identifies measurable website modernization opportunities that can inform human review and outreach.",
+    evidence
+  };
 }
 
 export async function enrichProspect({ industry, prospect }) {
@@ -74,12 +102,16 @@ export async function enrichProspect({ industry, prospect }) {
 
   const enrichment = await enrichBaseProspect({ industry, prospect });
   const websiteSummary = auditSummary(websiteAudit);
+  const observation = auditObservation(websiteAudit);
 
   return {
     ...enrichment,
     opportunitySummary: websiteSummary
       ? enrichment.opportunitySummary + " " + websiteSummary
       : enrichment.opportunitySummary,
+    marketingSignals: observation
+      ? [...(enrichment.marketingSignals || []), observation]
+      : enrichment.marketingSignals,
     websiteAudit,
     websiteAuditCached,
     websiteAuditError
