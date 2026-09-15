@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@openai/agents": "0.17.0",
-    "pdfkit": "0.17.2",
     "zod": "4.5.4"
   },
   "engines": {
