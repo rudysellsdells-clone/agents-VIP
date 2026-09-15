@@ -1,6 +1,12 @@
 import { enrichProspect as enrichBaseProspect } from "./prospect-enrichment-base.js";
 import { getOrRunWebsiteAudit } from "../lib/website-audit-runtime.js";
 
+function compactAudit(audit) {
+  if (!audit) return null;
+  const { pages, ...summary } = audit;
+  return summary;
+}
+
 function auditSummary(audit) {
   if (!audit) return "";
 
@@ -54,7 +60,7 @@ export async function enrichProspect({ industry, prospect }) {
 
   try {
     const result = await getOrRunWebsiteAudit({ industry, prospect });
-    websiteAudit = result.audit;
+    websiteAudit = compactAudit(result.audit);
     websiteAuditCached = Boolean(result.cached);
     websiteAuditError = result.persistenceError || null;
   } catch (error) {
