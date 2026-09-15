@@ -44,18 +44,9 @@
       </div>
 
       <div class="hero-card">
-        <div class="metric">
-          <strong>04</strong>
-          <span>Industry playbooks</span>
-        </div>
-        <div class="metric">
-          <strong>10</strong>
-          <span>Prospects per public search</span>
-        </div>
-        <div class="metric">
-          <strong>100 mi</strong>
-          <span>Public search radius</span>
-        </div>
+        <div class="metric"><strong>04</strong><span>Industry playbooks</span></div>
+        <div class="metric"><strong>10</strong><span>Prospects per public search</span></div>
+        <div class="metric"><strong>100 mi</strong><span>Public search radius</span></div>
       </div>
     </section>
 
@@ -64,9 +55,7 @@
         <div class="panel-heading">
           <p class="eyebrow">Start a search</p>
           <h2>Define your market</h2>
-          <p id="industry-description">
-            Choose an industry to load its prospecting criteria.
-          </p>
+          <p id="industry-description">Choose an industry to load its prospecting criteria.</p>
         </div>
 
         <form id="search-form">
@@ -79,14 +68,7 @@
 
           <label>
             Market
-            <input
-              id="market"
-              name="market"
-              type="text"
-              placeholder="Milwaukee, WI"
-              maxlength="120"
-              required
-            >
+            <input id="market" name="market" type="text" placeholder="Milwaukee, WI" maxlength="120" required>
           </label>
 
           <div class="field-grid">
@@ -141,13 +123,11 @@
           </fieldset>
 
           <button id="search-button" class="primary-button" type="submit">
-            <span>Find prospects</span>
-            <span aria-hidden="true">→</span>
+            <span>Find prospects</span><span aria-hidden="true">→</span>
           </button>
 
           <p class="form-note">
-            Searches use public business information and are rate-limited to
-            control research costs.
+            Searches use public business information and are rate-limited to control research costs.
           </p>
         </form>
       </aside>
@@ -156,28 +136,21 @@
         <div id="empty-state" class="empty-state">
           <div class="empty-icon">◎</div>
           <h2>Your prospect shortlist will appear here.</h2>
-          <p>
-            Start with a focused market and a few priorities. Evidence-backed
-            prospects are more useful than a long list of unqualified names.
-          </p>
+          <p>Start with a focused market and a few priorities. Evidence-backed prospects are more useful than a long list of unqualified names.</p>
         </div>
 
         <div id="loading-state" class="loading-state" hidden>
           <div class="loader"></div>
           <p class="eyebrow">Research in progress</p>
           <h2 id="loading-title">Searching the market…</h2>
-          <p id="loading-message">
-            Looking for credible business candidates.
-          </p>
+          <p id="loading-message">Looking for credible business candidates.</p>
         </div>
 
         <div id="error-state" class="message-card error-card" hidden>
           <p class="eyebrow">Search issue</p>
           <h2>We couldn't complete that search.</h2>
           <p id="error-message"></p>
-          <button id="try-again" class="secondary-button" type="button">
-            Try again
-          </button>
+          <button id="try-again" class="secondary-button" type="button">Try again</button>
         </div>
 
         <div id="results-state" hidden>
@@ -187,15 +160,11 @@
               <h2 id="results-title"></h2>
               <p id="results-summary"></p>
             </div>
-            <button id="export-csv" class="secondary-button" type="button">
-              Export CSV
-            </button>
+            <button id="export-csv" class="secondary-button" type="button">Export CSV</button>
           </div>
 
           <div id="qualification-job" class="qualification-job" hidden></div>
-
           <div id="results-list" class="results-list"></div>
-
           <div id="persistence-note" class="persistence-note" hidden></div>
         </div>
       </section>
@@ -224,6 +193,7 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/rudysellsdells-clone/agents-VIP@d66f2735661813cf6d705d935b8cd2fd5997a207/public/qualification-sync.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/rudysellsdells-clone/agents-VIP@54af7c66ee191d8dd713de213c424eccf674b5f3/public/report.js"></script>
   <script type="module" src="/ui.js"></script>
 </body>
