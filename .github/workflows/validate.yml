@@ -56,3 +56,42 @@ jobs:
           grep -q 'CONTACT_FAILED' lib/qualification-pipeline.js
           grep -q 'OUTREACH_FAILED' lib/qualification-pipeline.js
           grep -q 'ENRICHMENT_FAILED' lib/qualification-pipeline.js
+
+      - name: Check approved report template assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f public/report-v3.js
+          grep -q 'renderCanvases' public/report-v3.js
+          grep -q '/report-v3.js' public/index.html
+          node <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+          const context = { window: {} };
+          vm.createContext(context);
+          const files = [
+            'public/report-template-page1.js',
+            'public/report-template-page2-a.js',
+            'public/report-template-page2-b.js',
+            'public/report-template-page2-c.js',
+            'public/report-template-page2-d.js',
+            'public/report-template-page3-a.js',
+            'public/report-template-page3-b.js',
+            'public/report-template-page3-c1.js',
+            'public/report-template-page3-c2.js',
+            'public/report-template-page3-d1.js',
+            'public/report-template-page3-d2.js'
+          ];
+          for (const file of files) vm.runInContext(fs.readFileSync(file, 'utf8'), context, { filename: file });
+          const p1 = context.window.WSP_REPORT_TEMPLATE_PAGE1;
+          const p2 = context.window.WSP_REPORT_TEMPLATE_PAGE2;
+          const p3 = context.window.WSP_REPORT_TEMPLATE_PAGE3;
+          if (!p1?.startsWith('data:image/avif;base64,')) throw new Error('Page 1 template data URI missing.');
+          if (p2.length !== 33276) throw new Error(`Page 2 template length ${p2.length}, expected 33276.`);
+          if (p3.length !== 35536) throw new Error(`Page 3 template length ${p3.length}, expected 35536.`);
+          for (const [name, raw] of [['page2', p2], ['page3', p3]]) {
+            const buf = Buffer.from(raw, 'base64');
+            if (buf.length < 20000 || buf.subarray(4, 12).toString('ascii').indexOf('ftypavif') === -1) throw new Error(`${name} is not a valid embedded AVIF payload.`);
+          }
+          console.log('Embedded report artwork validated:', { page2: p2.length, page3: p3.length });
+          NODE
