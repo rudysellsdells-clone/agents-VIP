@@ -1,2 +1,2 @@
-export { enrichProspect } from "./prospect-enrichment-with-audit.js";
+export { enrichProspect } from "./prospect-enrichment-resilient.js";
 export { EnrichmentOutput } from "./prospect-enrichment-base.js";
