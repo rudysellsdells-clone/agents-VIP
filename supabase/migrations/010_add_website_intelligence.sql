@@ -51,7 +51,9 @@ create table if not exists public.website_audits (
   audited_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   constraint website_audits_confidence_check
-    check (audit_confidence is null or audit_confidence between 0 and 100)
+    check (audit_confidence is null or audit_confidence between 0 and 100),
+  constraint website_audits_health_check
+    check (website_health_score is null or website_health_score between 0 and 100)
 );
 
 create table if not exists public.website_audit_pages (
@@ -88,8 +90,40 @@ create table if not exists public.website_audit_pages (
   findings jsonb not null default '[]'::jsonb,
   evidence jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
-  unique (audit_id, url)
+  unique (audit_id, url),
+  constraint website_audit_pages_content_quality_check
+    check (content_quality_score is null or content_quality_score between 0 and 100),
+  constraint website_audit_pages_conversion_check
+    check (conversion_score is null or conversion_score between 0 and 100),
+  constraint website_audit_pages_technical_seo_check
+    check (technical_seo_score is null or technical_seo_score between 0 and 100)
 );
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'prospects_website_audit_id_fkey'
+      and conrelid = 'public.prospects'::regclass
+  ) then
+    alter table public.prospects
+      add constraint prospects_website_audit_id_fkey
+      foreign key (website_audit_id)
+      references public.website_audits(id)
+      on delete set null;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'prospects_website_health_score_check'
+      and conrelid = 'public.prospects'::regclass
+  ) then
+    alter table public.prospects
+      add constraint prospects_website_health_score_check
+      check (website_health_score is null or website_health_score between 0 and 100);
+  end if;
+end
+$$;
 
 create index if not exists website_audits_website_audited_idx
   on public.website_audits (website, audited_at desc);
