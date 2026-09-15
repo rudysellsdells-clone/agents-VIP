@@ -1,6 +1,6 @@
 {
   "name": "prospect-agent-server",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Multi-industry AI prospect intelligence server for Marketing VIP",
   "type": "module",
   "main": "app.js",
@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@openai/agents": "0.17.0",
+    "pdfkit": "0.17.2",
     "zod": "4.5.4"
   },
   "engines": {
