@@ -43,6 +43,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'prospect-enrichment-with-audit' agents/prospect-enrichment.js
+          grep -q 'prospect-enrichment-resilient' agents/prospect-enrichment.js
+          grep -q 'prospect-enrichment-with-audit' agents/prospect-enrichment-resilient.js
           grep -q 'website-intelligence-v1' lib/website-audit-runtime.js
           grep -q 'Website Intelligence diagnostic' agents/prospect-enrichment-with-audit.js
+
+      - name: Check qualification partial-state behavior
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"PARTIAL"' lib/qualification-pipeline.js
+          grep -q 'CONTACT_FAILED' lib/qualification-pipeline.js
+          grep -q 'OUTREACH_FAILED' lib/qualification-pipeline.js
+          grep -q 'ENRICHMENT_FAILED' lib/qualification-pipeline.js
